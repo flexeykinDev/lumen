@@ -279,8 +279,7 @@ impl Island {
         // Gaps are configured in logical pixels and scaled by the *destination*
         // monitor, so the island sits the same visual distance from the edge on
         // a 100% display and a 200% one.
-        let gap = (conf.taskbar_gap as f64 * dock.scale).round() as i32;
-        let margin = (conf.edge_margin as f64 * dock.scale).round() as i32;
+        let (gap, margin) = scaled_insets(conf, dock.scale);
         let work = dock.work;
 
         let _ = work;
@@ -445,8 +444,7 @@ impl Island {
         self.dragging.store(false, Ordering::SeqCst);
 
         let dock = taskbar::dock_for(conf.monitor);
-        let gap = (conf.taskbar_gap as f64 * dock.scale).round() as i32;
-        let margin = (conf.edge_margin as f64 * dock.scale).round() as i32;
+        let (gap, margin) = scaled_insets(conf, dock.scale);
         let size = self.geometry.size();
 
         // Same clamp as the drag itself, in case a release arrives with a
@@ -552,6 +550,18 @@ impl Island {
 /// The work area already excludes the taskbar on whichever edge it lives, so
 /// docking against it is correct for a taskbar on any side, for auto-hide, and
 /// for third-party appbars — without special-casing any of them.
+/// The gap and edge margin in physical pixels for a monitor at `scale`.
+///
+/// Both are configured in *logical* pixels so the capsule sits the same visual
+/// distance from the edge on a 100% display and a 200% one. Scaling by the
+/// destination monitor is the whole point on a mixed-DPI desktop.
+fn scaled_insets(conf: &Config, scale: f64) -> (i32, i32) {
+    (
+        (conf.taskbar_gap as f64 * scale).round() as i32,
+        (conf.edge_margin as f64 * scale).round() as i32,
+    )
+}
+
 fn anchor_for(conf: &Config, dock: &taskbar::Dock, gap: i32, margin: i32) -> Anchor {
     let work = dock.work;
     match conf.dock {
@@ -711,6 +721,134 @@ mod tests {
                 (GLIDE_MIN_MS..=GLIDE_MAX_MS).contains(&ms),
                 "distance {distance}, speed {speed} produced {ms}ms"
             );
+        }
+    }
+
+    // --- placement across DPI scales and monitor origins ---------------------
+    //
+    // This is the half of multi-monitor support that can be tested without a
+    // second monitor, and it is the half where the bugs are. The failure mode is
+    // always the same shape: code that quietly assumes the work area starts at
+    // (0, 0) and that one logical pixel is one physical pixel. Both hold on a
+    // single 100% display and neither holds anywhere else, so a single-monitor
+    // machine cannot catch it by running the app.
+    //
+    // The remaining, untestable part is one OS call — whether `GetDpiForMonitor`
+    // reports the destination monitor's scale — and it is thin glue by design.
+
+    fn dock_at(left: i32, top: i32, w: i32, h: i32, scale: f64) -> taskbar::Dock {
+        use windows::Win32::Foundation::RECT;
+        let work = RECT { left, top, right: left + w, bottom: top + h };
+        taskbar::Dock { work, monitor: work, taskbar: None, scale }
+    }
+
+    /// Resolve a mode to a window origin, the way `reposition` does.
+    fn origin_for(mode: DockMode, dock: &taskbar::Dock, size: Size) -> (i32, i32) {
+        let conf = Config { dock: mode, ..Config::default() };
+        // Deliberately the production function, not a copy of its arithmetic:
+        // a test that reimplements what it is checking only ever proves itself.
+        let (gap, margin) = scaled_insets(&conf, dock.scale);
+        anchor_for(&conf, dock, gap, margin).origin(size)
+    }
+
+    #[test]
+    fn every_dock_lands_on_its_edge_at_100_percent() {
+        let dock = dock_at(0, 0, 1920, 1032, 1.0);
+        let size = collapsed_size(1.0);
+        let (gap, margin) = (10, 16);
+
+        assert_eq!(origin_for(DockMode::TopLeft, &dock, size), (margin, gap));
+        assert_eq!(
+            origin_for(DockMode::TopRight, &dock, size),
+            (1920 - margin - size.w, gap)
+        );
+        assert_eq!(
+            origin_for(DockMode::BottomLeft, &dock, size),
+            (margin, 1032 - gap - size.h)
+        );
+        assert_eq!(
+            origin_for(DockMode::BottomRight, &dock, size),
+            (1920 - margin - size.w, 1032 - gap - size.h)
+        );
+        assert_eq!(
+            origin_for(DockMode::TaskbarCenter, &dock, size).0,
+            960 - size.w / 2
+        );
+    }
+
+    /// A second monitor does not start at zero, and one to the *left* of the
+    /// primary has negative coordinates. Anything that treats the work area as
+    /// an origin rather than an offset lands the capsule on the wrong screen.
+    #[test]
+    fn placement_follows_a_monitor_that_is_not_at_the_origin() {
+        for (left, top) in [(1920, 0), (-1920, 0), (1920, -540), (-2560, 120)] {
+            let dock = dock_at(left, top, 1920, 1032, 1.0);
+            let size = collapsed_size(1.0);
+
+            assert_eq!(
+                origin_for(DockMode::TopLeft, &dock, size),
+                (left + 16, top + 10),
+                "top-left on a monitor at ({left},{top})"
+            );
+            assert_eq!(
+                origin_for(DockMode::BottomRight, &dock, size),
+                (left + 1920 - 16 - size.w, top + 1032 - 10 - size.h),
+                "bottom-right on a monitor at ({left},{top})"
+            );
+        }
+    }
+
+    /// Gaps and margins are configured in *logical* pixels, so the visual inset
+    /// must be the same physical distance at every scale — which means scaling
+    /// them by the destination monitor, not the one we happen to be on.
+    #[test]
+    fn gaps_and_margins_scale_with_the_monitor() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let dock = dock_at(0, 0, 1920, 1032, scale);
+            let size = collapsed_size(scale);
+            let gap = (10.0 * scale).round() as i32;
+            let margin = (16.0 * scale).round() as i32;
+
+            assert_eq!(
+                origin_for(DockMode::TopLeft, &dock, size),
+                (margin, gap),
+                "top-left at {scale}x"
+            );
+            assert_eq!(
+                origin_for(DockMode::BottomRight, &dock, size),
+                (1920 - margin - size.w, 1032 - gap - size.h),
+                "bottom-right at {scale}x"
+            );
+        }
+    }
+
+    /// The capsule itself is laid out in logical pixels and must grow with the
+    /// display, or it renders postage-stamp sized on a 200% monitor.
+    #[test]
+    fn capsule_sizes_scale_with_the_monitor() {
+        assert_eq!(collapsed_size(2.0).w, collapsed_size(1.0).w * 2);
+        assert_eq!(expanded_size(2.0).h, expanded_size(1.0).h * 2);
+        assert!(expanded_size(1.5).w > collapsed_size(1.5).w);
+    }
+
+    /// Mirroring is decided by which half of *its own* monitor the capsule sits
+    /// in. Comparing against a bare screen width would mirror everything on a
+    /// right-hand second monitor and nothing on a left-hand one.
+    #[test]
+    fn mirroring_is_relative_to_the_monitor_not_the_desktop() {
+        let size = collapsed_size(1.0);
+        for left in [0, 1920, -1920] {
+            let dock = dock_at(left, 0, 1920, 1032, 1.0);
+
+            let near_left = Anchor::at(left + 40, 0);
+            let near_right = Anchor::at(left + 1920 - 40 - size.w, 0);
+            assert!(!mirrored_for(near_left, size, &dock), "left edge at {left}");
+            assert!(mirrored_for(near_right, size, &dock), "right edge at {left}");
+
+            // The docked modes carry their alignment explicitly.
+            let conf = Config { dock: DockMode::BottomRight, ..Config::default() };
+            let anchor = anchor_for(&conf, &dock, 10, 16);
+            assert!(mirrored_for(anchor, size, &dock), "bottom-right at {left}");
         }
     }
 
