@@ -228,6 +228,14 @@ struct Worker {
     clock: Option<TrackClock>,
     /// A source value that disagreed with the clock, awaiting confirmation.
     resync: Option<(f64, Instant)>,
+    /// When the last confirmation re-read was scheduled, to rate-limit them.
+    probe_at: Option<Instant>,
+    /// Consecutive probes that failed to resolve a disagreement.
+    disagreements: u32,
+    /// When the source was last forced to republish.
+    last_nudge: Option<Instant>,
+    /// Set by `clock_position`, acted on by `refresh`, which holds the session.
+    want_nudge: bool,
 }
 
 /// How far a reported position may sit from Lumen's own clock and still be
@@ -239,6 +247,22 @@ const CLOCK_TOLERANCE: f64 = 2.5;
 /// Two readings taken milliseconds apart say nothing about whether playback is
 /// really there; they only say the source repeated itself.
 const RESYNC_MIN_GAP: f64 = 1.5;
+
+/// How long after a disagreement to re-read the source. Slightly longer than
+/// `RESYNC_MIN_GAP` so the reading taken then is already old enough to count as
+/// confirmation.
+const RESYNC_PROBE: Duration = Duration::from_millis(1600);
+
+/// Fruitless probes before forcing the source to republish. Three is roughly
+/// five seconds of disagreement — long enough that a source merely settling is
+/// never nudged.
+const NUDGE_AFTER: u32 = 3;
+/// Minimum spacing between forced republishes.
+const NUDGE_COOLDOWN: Duration = Duration::from_secs(10);
+/// Pause between the halves of a nudge, and between resume attempts.
+const RESUME_GAP: Duration = Duration::from_millis(120);
+/// How many times to insist on resuming before forcing it outright.
+const RESUME_ATTEMPTS: u32 = 3;
 
 /// Lumen's own view of where playback is, carried between samples.
 struct TrackClock {
@@ -270,6 +294,10 @@ impl Worker {
             started: Instant::now(),
             clock: None,
             resync: None,
+            probe_at: None,
+            disagreements: 0,
+            last_nudge: None,
+            want_nudge: false,
         };
 
         worker.hook_manager()?;
@@ -621,6 +649,8 @@ impl Worker {
         if track_changed || self.clock.is_none() {
             self.clock = Some(TrackClock { position: reported, at: Instant::now() });
             self.resync = None;
+            self.probe_at = None;
+            self.disagreements = 0;
             return cap(reported);
         }
 
@@ -633,6 +663,8 @@ impl Worker {
             clock.position = reported;
             clock.at = Instant::now();
             self.resync = None;
+            self.probe_at = None;
+            self.disagreements = 0;
             return cap(reported);
         }
 
@@ -657,15 +689,102 @@ impl Worker {
                 clock.position = reported;
                 clock.at = Instant::now();
                 self.resync = None;
+            self.probe_at = None;
+            self.disagreements = 0;
                 return cap(reported);
             }
         }
 
-        // First sighting: remember it, keep our own clock running, and wait to
-        // see whether the source stands by it.
+        // First sighting: remember it, keep our own clock running, and go back
+        // and look again shortly.
+        //
+        // The re-read is the point. Waiting for the source to volunteer a second
+        // sample does not work: YouTube publishes a timeline only on discrete
+        // events, so while playing there is no follow-up at all and an external
+        // seek is never confirmed. Pausing produces one, which is precisely why
+        // pausing appeared to "fix" the sync. Asking again on our own schedule
+        // removes the dependency on the source being chatty.
         self.resync = Some((reported, Instant::now()));
         tracing::debug!("ignoring timeline {reported:.1}s; holding {expected:.1}s");
+
+        let due = self.probe_at.is_none_or(|t| t.elapsed().as_secs_f64() >= RESYNC_MIN_GAP);
+        if due {
+            self.disagreements += 1;
+            self.probe_at = Some(Instant::now());
+            let tx = self.tx.clone();
+            let _ = std::thread::Builder::new().name("lumen-timeline-probe".into()).spawn(
+                move || {
+                    std::thread::sleep(RESYNC_PROBE);
+                    let _ = tx.send(Msg::Refresh);
+                },
+            );
+        }
+
+        // Re-reading does not help when the source has simply stopped updating.
+        // Firefox reports a frozen 0.0 after a seek made in the page itself and
+        // never revises it while playing — so no amount of asking again will
+        // reveal where the video actually is. A playback state change is the one
+        // thing that makes it republish, which is why pausing by hand "fixed"
+        // the sync.
+        //
+        // So after several fruitless probes, force that republish. Deliberately
+        // a last resort: it is rate-limited, only ever runs while playing, and
+        // verifies the resume, because pausing someone's music and leaving it
+        // paused is far worse than a counter that is briefly out of step.
+        if playing
+            && self.disagreements >= NUDGE_AFTER
+            && self.last_nudge.is_none_or(|t| t.elapsed() >= NUDGE_COOLDOWN)
+        {
+            self.want_nudge = true;
+        }
+
         cap(expected)
+    }
+
+    /// Make a stuck source republish its timeline, by pausing and resuming it.
+    ///
+    /// The resume is *verified*, not assumed. An earlier version fired play
+    /// immediately after pause and ignored the result; a source that had not
+    /// finished pausing dropped the play and the track simply stayed stopped.
+    fn force_republish(&mut self, session: &Session) {
+        self.last_nudge = Some(Instant::now());
+        self.disagreements = 0;
+        tracing::info!("source timeline is stuck; forcing a republish with pause/play");
+
+        let done = (|| -> anyhow::Result<bool> {
+            if !await_op(session.TryPauseAsync()?)? {
+                return Ok(false);
+            }
+            std::thread::sleep(RESUME_GAP);
+            for attempt in 1..=RESUME_ATTEMPTS {
+                if await_op(session.TryPlayAsync()?)?
+                    && matches!(
+                        session.GetPlaybackInfo().and_then(|i| i.PlaybackStatus()),
+                        Ok(Status::Playing)
+                    )
+                {
+                    return Ok(true);
+                }
+                tracing::warn!("resume did not take (attempt {attempt})");
+                std::thread::sleep(RESUME_GAP);
+            }
+            Ok(false)
+        })();
+
+        if !matches!(done, Ok(true)) {
+            if let Err(e) = &done {
+                tracing::warn!("forced republish failed: {e}");
+            }
+            // Whatever happened, playback must not be left paused by something
+            // the user never asked for.
+            if matches!(
+                session.GetPlaybackInfo().and_then(|i| i.PlaybackStatus()),
+                Ok(Status::Paused)
+            ) {
+                tracing::warn!("republish left playback paused; forcing resume");
+                let _ = session.TryPlayAsync().map(await_op);
+            }
+        }
     }
 
     /// Read the full session state and emit the narrowest event that describes it.
@@ -729,6 +848,12 @@ impl Worker {
         }
 
         timeline.position_sec = self.clock_position(state, track_changed, timeline);
+
+        // Done here rather than inside `clock_position` because it needs the
+        // session, and because it must not run while that borrow is live.
+        if std::mem::take(&mut self.want_nudge) {
+            self.force_republish(&session);
+        }
 
         // Artwork decoding and quantization is the only expensive thing here, so
         // it happens exactly once per track — never on a play/pause or a seek.
@@ -869,6 +994,8 @@ impl Worker {
             }
             self.clock = Some(TrackClock { position: seconds.max(0.0), at: Instant::now() });
             self.resync = None;
+            self.probe_at = None;
+            self.disagreements = 0;
         }
 
         // Logged either way. A silent success is indistinguishable from a
