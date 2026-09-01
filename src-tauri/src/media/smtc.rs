@@ -253,9 +253,18 @@ const RESYNC_MIN_GAP: f64 = 1.5;
 /// confirmation.
 const RESYNC_PROBE: Duration = Duration::from_millis(1600);
 
-/// Fruitless probes before forcing the source to republish. Three is roughly
-/// five seconds of disagreement — long enough that a source merely settling is
-/// never nudged.
+/// How close two readings must be to count as the source repeating itself
+/// rather than reporting progress.
+const FROZEN_EPSILON: f64 = 0.25;
+
+/// Repeats of a frozen value before forcing the source to republish. Three is
+/// roughly five seconds of a stuck timeline.
+///
+/// This only ever counts *frozen* readings, so a well-behaved source is never
+/// nudged: measured on this machine, Edge and Spotify resync on the first or
+/// second re-read and never reach this at all. It is a workaround for one
+/// specific fault — Firefox freezing its timeline at 0.0 after an in-page
+/// seek — and is gated to look exactly like that fault.
 const NUDGE_AFTER: u32 = 3;
 /// Minimum spacing between forced republishes.
 const NUDGE_COOLDOWN: Duration = Duration::from_secs(10);
@@ -679,12 +688,22 @@ impl Worker {
         // genuinely running position can win.
         if let Some((candidate, since)) = self.resync {
             let gap = since.elapsed().as_secs_f64();
-            let candidate_now = candidate + if playing { gap } else { 0.0 };
-            let progressed = !playing || reported > candidate + 0.5;
-            if gap >= RESYNC_MIN_GAP
-                && progressed
-                && (reported - candidate_now).abs() <= CLOCK_TOLERANCE
-            {
+            // Judge the *rate*, not the absolute position.
+            //
+            // Comparing positions with a fixed tolerance only works when the two
+            // are already close. Once the clock and the source are far apart —
+            // after an external seek, say — a correct, running source stays
+            // permanently outside the tolerance and is rejected forever, which
+            // stranded the counter at 20s while the video played on at 8:43.
+            //
+            // How fast the reported position is moving answers the real
+            // question directly: about one second per second means the source is
+            // playing and telling the truth, whatever the value; about zero
+            // means it is stuck.
+            let rate = if gap > 0.0 { (reported - candidate) / gap } else { 0.0 };
+            let running =
+                if playing { (0.5..=1.6).contains(&rate) } else { (reported - candidate).abs() <= CLOCK_TOLERANCE };
+            if gap >= RESYNC_MIN_GAP && running {
                 tracing::debug!("timeline resynced to {reported:.1}s (was showing {expected:.1}s)");
                 clock.position = reported;
                 clock.at = Instant::now();
@@ -704,12 +723,36 @@ impl Worker {
         // seek is never confirmed. Pausing produces one, which is precisely why
         // pausing appeared to "fix" the sync. Asking again on our own schedule
         // removes the dependency on the source being chatty.
-        self.resync = Some((reported, Instant::now()));
-        tracing::debug!("ignoring timeline {reported:.1}s; holding {expected:.1}s");
+        // Disagreeing and *frozen* are different faults, and only one of them
+        // needs the heavy fix.
+        //
+        // A source that disagrees but keeps moving is simply somewhere else —
+        // mid-seek, or seeked in its own player — and the confirmation rule
+        // above will adopt it within a couple of seconds. Edge and Spotify
+        // behave this way and must never be interfered with.
+        //
+        // A source repeating the identical value is stuck, and no amount of
+        // re-reading will ever change it. Only that case earns a nudge. Keeping
+        // the original candidate timestamp matters too: it makes the
+        // confirmation window measure real elapsed time rather than restarting
+        // on every repeat.
+        let frozen = self
+            .resync
+            .is_some_and(|(candidate, _)| (reported - candidate).abs() <= FROZEN_EPSILON);
+        if !frozen {
+            self.resync = Some((reported, Instant::now()));
+            self.disagreements = 0;
+        }
+        tracing::debug!(
+            "ignoring timeline {reported:.1}s; holding {expected:.1}s{}",
+            if frozen { " (source frozen)" } else { "" }
+        );
 
         let due = self.probe_at.is_none_or(|t| t.elapsed().as_secs_f64() >= RESYNC_MIN_GAP);
         if due {
-            self.disagreements += 1;
+            if frozen {
+                self.disagreements += 1;
+            }
             self.probe_at = Some(Instant::now());
             let tx = self.tx.clone();
             let _ = std::thread::Builder::new().name("lumen-timeline-probe".into()).spawn(
