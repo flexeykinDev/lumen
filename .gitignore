@@ -1,0 +1,15 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+lumen.config.json
+*.log
+.DS_Store
+.vscode/
+.idea/
+.claude/
+
+# Config written beside a portable exe, plus the crash-safe temp and the copy
+# kept when a hand-edited file fails to parse.
+lumen.config.json.bak
+lumen.config.json.tmp

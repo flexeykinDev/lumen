@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The island window only listens for host events and calls Lumen's own commands. No filesystem, shell, or network permission is granted.",
+  "windows": ["island"],
+  "permissions": ["core:default"]
+}

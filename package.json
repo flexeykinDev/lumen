@@ -1,0 +1,29 @@
+{
+  "name": "lumen",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check:motion": "node scripts/check-motion.mjs",
+    "tauri": "tauri",
+    "start": "tauri dev",
+    "build:fast": "tauri build --debug",
+    "release": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@tauri-apps/cli": "^2.11.4",
+    "@tsconfig/svelte": "^5.0.8",
+    "lightningcss": "^1.33.0",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2"
+  }
+}

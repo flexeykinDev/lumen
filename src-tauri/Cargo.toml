@@ -1,0 +1,58 @@
+[package]
+name = "lumen"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A Dynamic Island-style glass music surface for Windows 11"
+
+[lib]
+name = "lumen_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = ["codegen"] }
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+color-thief = "0.2.2"
+global-hotkey = "0.8.0"
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tauri = { version = "2.11.5", features = ["tray-icon", "image-png"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+window-vibrancy = "0.8.0"
+windows = { version = "0.62.2", features = ["Foundation_Collections", "Media_Control", "Storage_Streams", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_LibraryLoader", "Win32_System_Ole", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WinRT", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-collections = "0.3.2"
+windows-future = "0.3.2"
+
+# Size is a hard requirement (<10 MB portable exe), so the SHIPPING profile
+# optimises for it rather than for speed. Fat LTO at one codegen unit is
+# single-threaded whole-program optimisation: it takes minutes and pins one
+# core. Use this for releases and size measurements — not for iteration.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+incremental = false
+
+# Iteration profile. Same *semantics* as release — most importantly the frontend
+# is bundled rather than pointed at the Vite dev server, so the binary is a real
+# standalone exe — but linked in seconds instead of minutes.
+#
+# Reached via `npm run build:fast` (tauri build --debug). Do not use it for size
+# numbers: without LTO and strip the exe is several times larger.
+[profile.dev]
+opt-level = 1
+debug = 0
+incremental = true
+
+# Dependencies rarely change and are the bulk of the link, so let them keep a
+# little optimisation even in the fast profile.
+[profile.dev.package."*"]
+opt-level = 2

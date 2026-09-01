@@ -1,0 +1,110 @@
+/* The page itself is a hole. Only the capsule paints, and only the capsule
+   takes pointer events — everything outside it belongs to the desktop. */
+
+:root {
+  /* White-with-alpha rather than grey hexes. A fixed grey like #a5abc4 carries
+     its own hue and goes muddy over a tinted Acrylic backdrop; alpha lets the
+     glass underneath set the colour, so text stays neutral on any wallpaper. */
+  --ink: rgba(255, 255, 255, 0.98);
+  --ink-dim: rgba(255, 255, 255, 0.66);
+  --ink-faint: rgba(255, 255, 255, 0.42);
+
+  /* Edge lighting. Glass is not outlined uniformly: the top edge catches the
+     light, the sides barely register, and the bottom edge reads as thickness. */
+  --edge-top: rgba(255, 255, 255, 0.42);
+  --edge-side: rgba(255, 255, 255, 0.1);
+  --edge-bottom: rgba(0, 0, 0, 0.22);
+
+  --well: rgba(255, 255, 255, 0.09);
+  --well-hover: rgba(255, 255, 255, 0.16);
+
+  /* Sits on top of the DWM Acrylic backdrop.
+     This must stay ALMOST TRANSPARENT — anything more than a sheen re-opaques
+     the glass and the capsule reads as a flat grey pill.
+     It is a *gradient*, not a flat wash: a uniform film has no light direction,
+     which is precisely what made the old capsule look like painted plastic.
+     Bright at the top where light lands, thin through the body, with a slight
+     lift at the very bottom so the lower edge does not die. */
+  --glass: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.06) 38%,
+    rgba(255, 255, 255, 0.028) 70%,
+    rgba(255, 255, 255, 0.07) 100%
+  );
+
+  /* How strongly the album-art accent tints the glass itself. This is the main
+     reason the capsule now changes character with the cover instead of being
+     grey no matter what is playing. */
+  --tint-strength: 14%;
+
+  --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+
+  --font: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+
+  /* Overridden per-transition on .stage with the host's exact curve; this is
+     only the fallback for components rendered outside it. */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* A short, slightly overshooting curve for presses and toggles. Transitions
+     that "arrive" feel mechanical; a touch of overshoot feels sprung. */
+  --ease-snap: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  /* Clicks land on the desktop unless they hit the capsule. */
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  font-family: var(--font);
+  /* The capsule is small and text-dense; grayscale AA stays crisp over glass. */
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+/* No system backdrop landed, so the panel supplies all of its own body. The
+   gradient is kept — it is what gives the surface light direction — but over an
+   opaque base rather than over the desktop. */
+[data-backdrop="none"] {
+  --glass: linear-gradient(180deg, rgba(34, 36, 48, 0.95) 0%, rgba(16, 17, 24, 0.95) 100%);
+  --tint-strength: 20%;
+}
+
+/* Mica is near-opaque and wallpaper-only by design, so the sheen tuned for
+   Acrylic disappears against it. Give it slightly more presence instead. */
+[data-backdrop="mica"] {
+  --glass: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.035) 45%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  --tint-strength: 16%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

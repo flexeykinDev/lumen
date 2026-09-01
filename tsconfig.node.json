@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true
+  },
+  "include": ["vite.config.ts", "svelte.config.js", "scripts/**/*.mjs"]
+}
