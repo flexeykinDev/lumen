@@ -4,7 +4,9 @@ A glass music capsule for Windows 11. It sits above the taskbar, shows what is
 playing, and gives the taskbar, the mouse wheel and Discord something useful to
 do with it.
 
-[Русская версия](README.ru.md) · [Architecture](ARCHITECTURE.md)
+[Русская версия](README.ru.md) · [Architecture](ARCHITECTURE.md) · [Download](../../releases/latest)
+
+![Lumen](docs/preview.svg)
 
 ## Features
 
@@ -28,8 +30,9 @@ do with it.
 - **Smart pause.** Pauses on lock, resumes on unlock — only ever its own pause.
 - **Share card.** 1200×600 PNG of the current track, straight to the clipboard.
 - **Settings window** in English and Russian, with a first-run tour.
-- **Clawd.** A pixel crab who dances in the capsule while music plays, and stops
-  when you click him. Off by default; it is an easter egg, not a feature.
+- **An easter egg.** There is a hidden pixel character. No switch reveals him —
+  the settings for him do not exist until you have found him. Once he is out, he
+  is fully customisable: dance, size, colour, accessory.
 - **Portable.** One 4.3 MB exe, one JSON file beside it. No installer, no
   registry beyond an optional autostart entry.
 
@@ -104,6 +107,13 @@ What is left of the original plays 34 dB under the boosted copy — inaudible,
 where a full-level double would have been an obvious echo. The app's level is
 restored when boost stops, when Lumen exits, and on Alt+middle-click.
 
+## Settings
+
+![Settings](docs/settings.png)
+
+Every option below is in the settings window, in English or Russian, and saves
+the moment it changes.
+
 ## Configuration
 
 `lumen.config.json`, beside the exe. Falls back to `%APPDATA%\Lumen\` when the
@@ -137,7 +147,7 @@ below is also in the settings window.
 | `discord.hiddenSources` | string[] | Players never published |
 | `smartPause.enabled`, `smartPause.resumeOnUnlock` | bool | |
 | `spectrum.enabled` | bool | |
-| `pet.enabled` | bool | Clawd, the pixel crab in the collapsed capsule |
+| `pet.*` | — | Written by the easter egg. Nothing to set by hand |
 | `startWithWindows` | bool | Mirrored into `HKCU\…\Run`, reconciled every launch |
 
 ### Hotkeys
@@ -187,7 +197,6 @@ choice between the progress bar and the buttons.
 | Ctrl + wheel | Big volume steps (5×) |
 | Shift + wheel | Fine volume steps (¼×) |
 | Click the volume bar | Explains the wheel and its modifiers — the bar itself is a readout |
-| Click Clawd | Dance or settle |
 | Drag the capsule | Move it; near a corner it snaps |
 
 Alt+middle-click exits by the shortest path and writes nothing on the way out.
@@ -221,4 +230,4 @@ asked for under 20 MB; that is not reachable with a WebView-based renderer, and
 
 ## License
 
-Not yet chosen. Until a `LICENSE` file is added, no permissions are granted.
+[MIT](LICENSE).

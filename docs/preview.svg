@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="Lumen — a glass music capsule for Windows 11">
+  <title>Lumen</title>
+  <desc>The Lumen capsule: album art, track, progress, spectrum and Clawd the pixel crab.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0c12" />
+      <stop offset="0.55" stop-color="#121622" />
+      <stop offset="1" stop-color="#0d1017" />
+    </linearGradient>
+
+    <radialGradient id="halo" cx="0.5" cy="0.52" r="0.5">
+      <stop offset="0" stop-color="#7a8cff" stop-opacity="0.30" />
+      <stop offset="0.6" stop-color="#7a8cff" stop-opacity="0.07" />
+      <stop offset="1" stop-color="#7a8cff" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- The capsule's glass: a light top edge falling to near-transparent. -->
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14" />
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.06" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.03" />
+    </linearGradient>
+
+    <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f0806a" />
+      <stop offset="0.5" stop-color="#c2568f" />
+      <stop offset="1" stop-color="#5a63d8" />
+    </linearGradient>
+
+    <linearGradient id="progress" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffb59e" />
+      <stop offset="1" stop-color="#f0806a" />
+    </linearGradient>
+
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="26" />
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)" />
+  <ellipse cx="640" cy="340" rx="470" ry="210" fill="url(#halo)" />
+
+  <!-- Wordmark -->
+  <g transform="translate(640 96)" text-anchor="middle"
+     font-family="Segoe UI Variable Display, Segoe UI, Inter, system-ui, sans-serif">
+    <circle cx="-92" cy="-9" r="9" fill="#7a8cff" />
+    <text x="8" y="2" font-size="52" font-weight="700" fill="#f4f6ff" letter-spacing="-1.4">Lumen</text>
+    <text x="0" y="44" font-size="19" fill="#9aa3bd" letter-spacing="0.2">
+      A glass music capsule for Windows 11
+    </text>
+  </g>
+
+  <!-- ── The expanded capsule, at roughly twice its real size ── -->
+  <g transform="translate(304 210)">
+    <!-- Shadow, then the glass body. -->
+    <rect x="14" y="26" width="644" height="212" rx="34" fill="#000" opacity="0.45" filter="url(#soft)" />
+    <rect width="672" height="228" rx="36" fill="#161a26" />
+    <rect width="672" height="228" rx="36" fill="url(#glass)" />
+    <rect x="0.5" y="0.5" width="671" height="227" rx="35.5" fill="none"
+          stroke="#ffffff" stroke-opacity="0.14" />
+
+    <!-- Spectrum: a band along the bottom edge, behind everything. Atmosphere,
+         not a control — it must never look like something to click. -->
+    <g opacity="0.28" transform="translate(34 214)">
+      <g fill="#f0806a">
+        <rect x="0" y="-14" width="6" height="14" rx="3" />
+        <rect x="12" y="-26" width="6" height="26" rx="3" />
+        <rect x="24" y="-38" width="6" height="38" rx="3" />
+        <rect x="36" y="-20" width="6" height="20" rx="3" />
+        <rect x="48" y="-31" width="6" height="31" rx="3" />
+        <rect x="60" y="-16" width="6" height="16" rx="3" />
+        <rect x="72" y="-34" width="6" height="34" rx="3" />
+        <rect x="84" y="-23" width="6" height="23" rx="3" />
+        <rect x="96" y="-12" width="6" height="12" rx="3" />
+        <rect x="108" y="-28" width="6" height="28" rx="3" />
+        <rect x="120" y="-18" width="6" height="18" rx="3" />
+        <rect x="132" y="-33" width="6" height="33" rx="3" />
+        <rect x="144" y="-21" width="6" height="21" rx="3" />
+        <rect x="156" y="-36" width="6" height="36" rx="3" />
+        <rect x="168" y="-15" width="6" height="15" rx="3" />
+        <rect x="180" y="-27" width="6" height="27" rx="3" />
+        <rect x="192" y="-19" width="6" height="19" rx="3" />
+        <rect x="204" y="-30" width="6" height="30" rx="3" />
+        <rect x="216" y="-13" width="6" height="13" rx="3" />
+        <rect x="228" y="-24" width="6" height="24" rx="3" />
+        <rect x="240" y="-35" width="6" height="35" rx="3" />
+        <rect x="252" y="-17" width="6" height="17" rx="3" />
+        <rect x="264" y="-29" width="6" height="29" rx="3" />
+        <rect x="276" y="-22" width="6" height="22" rx="3" />
+        <rect x="288" y="-32" width="6" height="32" rx="3" />
+        <rect x="300" y="-14" width="6" height="14" rx="3" />
+        <rect x="312" y="-25" width="6" height="25" rx="3" />
+        <rect x="324" y="-37" width="6" height="37" rx="3" />
+        <rect x="336" y="-18" width="6" height="18" rx="3" />
+        <rect x="348" y="-26" width="6" height="26" rx="3" />
+        <rect x="360" y="-15" width="6" height="15" rx="3" />
+        <rect x="372" y="-31" width="6" height="31" rx="3" />
+        <rect x="384" y="-20" width="6" height="20" rx="3" />
+        <rect x="396" y="-28" width="6" height="28" rx="3" />
+        <rect x="408" y="-16" width="6" height="16" rx="3" />
+        <rect x="420" y="-23" width="6" height="23" rx="3" />
+      </g>
+    </g>
+
+    <!-- Album art -->
+    <g transform="translate(32 34)">
+      <rect width="112" height="112" rx="18" fill="url(#cover)" />
+      <rect width="112" height="112" rx="18" fill="none" stroke="#ffffff" stroke-opacity="0.2" />
+      <circle cx="56" cy="56" r="17" fill="#0d1017" opacity="0.55" />
+      <circle cx="56" cy="56" r="5" fill="#f4f6ff" opacity="0.9" />
+    </g>
+
+    <!-- Track -->
+    <g font-family="Segoe UI Variable Text, Segoe UI, Inter, system-ui, sans-serif">
+      <text x="168" y="66" font-size="27" font-weight="650" fill="#f4f6ff" letter-spacing="-0.5">
+        The Law of Recognition
+      </text>
+      <!-- The lyric line takes the artist's place, filling as it is sung. -->
+      <text x="168" y="98" font-size="18" font-weight="560" fill="#8d94ab">
+        every word arrives <tspan fill="#f4f6ff">exactly when it is sung</tspan>
+      </text>
+
+      <!-- Progress -->
+      <rect x="168" y="122" width="472" height="6" rx="3" fill="#ffffff" opacity="0.14" />
+      <rect x="168" y="122" width="238" height="6" rx="3" fill="url(#progress)" />
+      <text x="168" y="150" font-size="13" fill="#7d8499">1:24</text>
+      <text x="640" y="150" font-size="13" fill="#7d8499" text-anchor="end">3:52</text>
+    </g>
+
+    <!-- Transport, volume, and the pet -->
+    <g transform="translate(168 176)" fill="none" stroke="#e8ebf5" stroke-width="2.4"
+       stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 8l-14 10 14 10z" fill="#e8ebf5" stroke="none" />
+      <circle cx="46" cy="18" r="15" fill="#f4f6ff" stroke="none" />
+      <path d="M41 11v14M51 11v14" stroke="#161a26" stroke-width="3" />
+      <path d="M84 8l14 10-14 10z" fill="#e8ebf5" stroke="none" />
+    </g>
+
+    <!-- Clawd, drawn on the same 16×16 grid the app uses. -->
+    <g transform="translate(292 166) scale(2.4)" shape-rendering="crispEdges">
+      <g fill="#8f4227">
+        <rect x="1" y="11" width="2" height="1" /><rect x="0" y="12" width="1" height="2" />
+        <rect x="13" y="11" width="2" height="1" /><rect x="15" y="12" width="1" height="2" />
+        <rect x="4" y="13" width="2" height="1" /><rect x="10" y="13" width="2" height="1" />
+        <rect x="0" y="6" width="4" height="4" /><rect x="12" y="6" width="4" height="4" />
+        <rect x="3" y="4" width="10" height="9" rx="1" />
+        <rect x="5" y="2" width="1" height="2" /><rect x="10" y="2" width="1" height="2" />
+        <rect x="4" y="1" width="3" height="3" /><rect x="9" y="1" width="3" height="3" />
+      </g>
+      <g fill="#d97757">
+        <rect x="1" y="7" width="2" height="2" /><rect x="13" y="7" width="2" height="2" />
+        <rect x="4" y="5" width="8" height="7" />
+        <rect x="3" y="6" width="1" height="5" /><rect x="12" y="6" width="1" height="5" />
+      </g>
+      <g fill="#ecb0a0">
+        <rect x="5" y="5" width="6" height="1" /><rect x="4" y="6" width="1" height="2" />
+      </g>
+      <g fill="#fdf6f2">
+        <rect x="5" y="2" width="1" height="1" /><rect x="10" y="2" width="1" height="1" />
+      </g>
+      <g fill="#8f4227">
+        <rect x="6" y="9" width="1" height="1" /><rect x="7" y="10" width="2" height="1" />
+        <rect x="9" y="9" width="1" height="1" />
+      </g>
+    </g>
+
+    <!-- Volume -->
+    <g transform="translate(372 174)">
+      <path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4z" fill="#c8cee0" transform="scale(1.15)" />
+      <rect x="30" y="15" width="94" height="5" rx="2.5" fill="#ffffff" opacity="0.16" />
+      <rect x="30" y="15" width="66" height="5" rx="2.5" fill="#f0806a" />
+      <text x="134" y="22" font-size="14" fill="#8d94ab"
+            font-family="Segoe UI, Inter, system-ui, sans-serif">70</text>
+    </g>
+
+    <!-- Source badge -->
+    <g transform="translate(556 168)">
+      <rect width="80" height="26" rx="13" fill="#f0806a" opacity="0.22" />
+      <text x="40" y="18" font-size="13" font-weight="600" fill="#ffbda9" text-anchor="middle"
+            font-family="Segoe UI, Inter, system-ui, sans-serif">Spotify</text>
+    </g>
+  </g>
+
+  <!-- Feature chips -->
+  <g font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="15" font-weight="550"
+     text-anchor="middle">
+    <g transform="translate(240 516)">
+      <rect x="-108" y="-22" width="216" height="44" rx="22" fill="#ffffff" opacity="0.05" />
+      <text y="6" fill="#c8cee0">Per-app taskbar volume</text>
+    </g>
+    <g transform="translate(468 516)">
+      <rect x="-96" y="-22" width="192" height="44" rx="22" fill="#ffffff" opacity="0.05" />
+      <text y="6" fill="#c8cee0">Boost past 100%</text>
+    </g>
+    <g transform="translate(668 516)">
+      <rect x="-84" y="-22" width="168" height="44" rx="22" fill="#ffffff" opacity="0.05" />
+      <text y="6" fill="#c8cee0">Synced lyrics</text>
+    </g>
+    <g transform="translate(856 516)">
+      <rect x="-84" y="-22" width="168" height="44" rx="22" fill="#ffffff" opacity="0.05" />
+      <text y="6" fill="#c8cee0">Discord presence</text>
+    </g>
+    <g transform="translate(1046 516)">
+      <rect x="-88" y="-22" width="176" height="44" rx="22" fill="#ffffff" opacity="0.05" />
+      <text y="6" fill="#c8cee0">4.3 MB, portable</text>
+    </g>
+  </g>
+
+  <text x="640" y="588" text-anchor="middle" font-size="14" fill="#5f6780"
+        font-family="Segoe UI, Inter, system-ui, sans-serif">
+    Rust · Tauri 2 · Svelte 5 · no polling, no telemetry, one file
+  </text>
+</svg>
