@@ -199,6 +199,25 @@ impl Default for Discord {
     }
 }
 
+/// Pause playback when the machine is locked.
+///
+/// Only ever resumes what it paused itself, and only if the session is
+/// untouched on return — coming back to music you had deliberately stopped is
+/// worse than coming back to silence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SmartPause {
+    pub enabled: bool,
+    /// Start it playing again on unlock. Off leaves the pause in place.
+    pub resume_on_unlock: bool,
+}
+
+impl Default for SmartPause {
+    fn default() -> Self {
+        Self { enabled: true, resume_on_unlock: true }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
@@ -234,6 +253,7 @@ pub struct Config {
     pub hotkeys: Hotkeys,
     pub mouse: Mouse,
     pub discord: Discord,
+    pub smart_pause: SmartPause,
 }
 
 impl Default for Config {
@@ -256,6 +276,7 @@ impl Default for Config {
             hotkeys: Hotkeys::default(),
             mouse: Mouse::default(),
             discord: Discord::default(),
+            smart_pause: SmartPause::default(),
         }
     }
 }

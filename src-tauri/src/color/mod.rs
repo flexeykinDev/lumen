@@ -220,16 +220,39 @@ mod tests {
         }
     }
 
-    /// End-to-end over a real PNG: decode, downsample, quantize, correct.
+    /// A PNG that is hostile to naive dominant-colour extraction: 90% near-black
+    /// with a small vivid patch. "Most common colour" returns near-black here,
+    /// which is exactly the mud this module exists to avoid, and real album art
+    /// has the same shape — a dark sleeve with one bright element.
     ///
-    /// The app icon is deliberately hostile to naive dominant-colour extraction —
-    /// it is ~80% near-black tile with a small violet capsule. A "most common
-    /// colour" implementation returns near-black here, which is exactly the mud
-    /// this module exists to avoid. Real album art has the same shape.
+    /// Built rather than loaded. This test used to read `assets/icon-source.png`
+    /// and assert the result was violet, which quietly encoded the *artwork* into
+    /// the test: replacing the app icon with one that has a warm landscape in it
+    /// broke the assertion, though nothing about the extraction had changed.
+    /// Constructing the image keeps the property under test independent of any
+    /// asset someone may swap.
+    fn hostile_png(patch: [u8; 3]) -> Vec<u8> {
+        use image::{ImageEncoder, codecs::png::PngEncoder};
+
+        let (w, h) = (64u32, 64u32);
+        let mut pixels = vec![0u8; (w * h * 3) as usize];
+        for (i, chunk) in pixels.chunks_exact_mut(3).enumerate() {
+            let (x, y) = (i as u32 % w, i as u32 / w);
+            // A 20x20 patch in the corner: about 10% of the image.
+            chunk.copy_from_slice(if x < 20 && y < 20 { &patch } else { &[8, 8, 10] });
+        }
+
+        let mut out = Vec::new();
+        PngEncoder::new(&mut out)
+            .write_image(&pixels, w, h, image::ExtendedColorType::Rgb8)
+            .expect("encoding a test image must succeed");
+        out
+    }
+
     #[test]
     fn extracts_a_vivid_accent_from_a_mostly_dark_image() {
-        let bytes = include_bytes!("../../../assets/icon-source.png");
-        let accent = extract(bytes).expect("the app icon must decode");
+        // Violet-blue, the classic "one bright element on a dark sleeve".
+        let accent = extract(&hostile_png([124, 92, 220])).expect("the test image must decode");
 
         let (_, s, l) = to_hsl(accent.base);
         assert!(s >= 0.5, "accent came out desaturated: {accent:?} (s={s})");
@@ -238,8 +261,8 @@ mod tests {
             "accent escaped the usable lightness band: {accent:?} (l={l})"
         );
 
-        // The capsule is violet-blue; a near-grey or a green result would mean
-        // the scoring picked the background or a compression artifact.
+        // Near-grey or green would mean the scoring picked the background or a
+        // compression artifact rather than the patch.
         let [r, g, b] = accent.base.0;
         assert!(b > g, "expected a blue-leaning accent, got {accent:?}");
         assert!(r > g, "expected a violet-leaning accent, got {accent:?}");
@@ -249,7 +272,35 @@ mod tests {
             accent.glow.luminance() < accent.base.luminance(),
             "glow is not darker than base: {accent:?}"
         );
-        let _ = (r, g, b);
+    }
+
+    /// The same shape with a warm patch, so the test cannot pass by accident on
+    /// something that always leans blue.
+    #[test]
+    fn follows_the_hue_of_the_vivid_patch() {
+        let accent = extract(&hostile_png([220, 140, 60])).expect("the test image must decode");
+        let [r, _g, b] = accent.base.0;
+        assert!(r > b, "expected a warm accent, got {accent:?}");
+        let (_, s, _) = to_hsl(accent.base);
+        assert!(s >= 0.4, "warm accent came out desaturated: {accent:?}");
+    }
+
+    /// The real app icon still has to produce *something* usable, whatever it
+    /// happens to depict. No hue assertion: that is the artwork's business.
+    #[test]
+    fn the_shipped_app_icon_yields_a_usable_accent() {
+        let accent =
+            extract(include_bytes!("../../../assets/icon-source.png")).expect("icon must decode");
+        let (_, s, l) = to_hsl(accent.base);
+        assert!(s >= 0.3, "app icon accent is nearly grey: {accent:?} (s={s})");
+        assert!(
+            (0.35..=0.75).contains(&l),
+            "app icon accent escaped the usable band: {accent:?} (l={l})"
+        );
+        assert!(
+            accent.glow.luminance() < accent.base.luminance(),
+            "glow is not darker than base: {accent:?}"
+        );
     }
 
     #[test]

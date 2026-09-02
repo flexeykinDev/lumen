@@ -14,6 +14,7 @@ pub mod media;
 pub mod motion;
 pub mod policy;
 pub mod presence;
+pub mod smart_pause;
 pub mod single_instance;
 pub mod util;
 pub mod window;
@@ -179,6 +180,28 @@ pub fn run() {
                         discord.application_id.trim().to_owned(),
                     )))
                 };
+
+                // Failure is never fatal: a machine or policy that refuses the
+                // session registration should still get a working island.
+                let pause_conf = cfg.get().smart_pause;
+                let smart_pause = if pause_conf.enabled {
+                    match smart_pause::SmartPause::start(
+                        Arc::clone(&media),
+                        pause_conf.resume_on_unlock,
+                    ) {
+                        Ok(watcher) => Some(watcher),
+                        Err(e) => {
+                            tracing::warn!("smart pause unavailable: {e:#}");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                if let Some(watcher) = smart_pause {
+                    // Held for the process lifetime; dropping it unregisters.
+                    app.manage(watcher);
+                }
 
                 build_tray(app, Arc::clone(&policy), Arc::clone(&cfg))?;
                 install_mouse_hook(&handle, Arc::clone(&cfg), Arc::clone(&policy));

@@ -86,6 +86,21 @@ directory is read-only; the tray tooltip tells you which one is in use.
 | `mouse.taskbarWheelOverFullscreen` | bool | Keeps the wheel working where the bar would be when a game covers it, targeting the covering app |
 | `mouse.taskbarCloseButton` | `middle` \| `right` \| `none` | Which button closes the app under a taskbar button. `right` replaces the jump list |
 
+### Smart pause
+
+Pauses playback when you lock the machine, and starts it again when you come
+back. `"smartPause": { "enabled": true, "resumeOnUnlock": true }`.
+
+It only ever resumes **its own** pause. If you stopped the music yourself before
+locking, or something else is playing when you return, it leaves things alone —
+coming back to music you deliberately stopped is worse than coming back to
+silence.
+
+It does not react to full-screen games. Windows reports that through
+`SHQueryUserNotificationState`, which has no event and would mean polling
+forever for something that happens a few times a day; lock and unlock arrive as
+real messages, so this costs nothing while nothing is happening.
+
 ### Discord Rich Presence
 
 Shows the current track on your Discord profile as *Listening to …*, with the
