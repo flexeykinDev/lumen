@@ -86,6 +86,28 @@ directory is read-only; the tray tooltip tells you which one is in use.
 | `mouse.taskbarWheelOverFullscreen` | bool | Keeps the wheel working where the bar would be when a game covers it, targeting the covering app |
 | `mouse.taskbarCloseButton` | `middle` \| `right` \| `none` | Which button closes the app under a taskbar button. `right` replaces the jump list |
 
+### Lyrics
+
+Time-synced lyrics from [LRCLIB](https://lrclib.net). The current line replaces
+the artist name in the expanded panel and follows the song.
+
+**Off by default, and this is the one setting worth reading before you flip it.**
+It is the only feature in Lumen that touches the network. Enabling it sends the
+**artist, title, album and duration** of everything you play to `lrclib.net`. No
+account, no identifier, nothing else — but it is a third party learning your
+listening, and that is your call to make, not a default to inherit.
+
+```json
+"lyrics": { "enabled": true }
+```
+
+One request per track, never per line: the whole timed lyric arrives in a single
+event and the current line is picked from the clock the progress bar already
+runs, so following along costs no IPC and no polling.
+
+Many tracks have only unsynced words, and some have none. Both cases simply
+leave the artist name showing.
+
 ### Share cards
 
 Tray → **Copy share card** renders a 1200×600 image of what is playing — cover,

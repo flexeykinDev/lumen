@@ -92,6 +92,23 @@ export interface AppVolumeState {
   muted: boolean;
 }
 
+/// One lyric line, at the moment it should appear.
+export interface LyricLine {
+  atSec: number;
+  text: string;
+}
+
+/// Timed lyrics for one track, delivered once. The renderer picks the current
+/// line from the clock it already interpolates, so playback costs no IPC.
+export interface LyricsEvent {
+  sessionId: string;
+  revision: number;
+  lines: LyricLine[];
+  /// The source had words but no timings, which is worth distinguishing from
+  /// having no lyrics at all.
+  plainOnly: boolean;
+}
+
 export interface SessionSummary {
   /** AUMID — opaque, used only as an identity for focusing. */
   id: string;
@@ -109,4 +126,5 @@ export const EVT = {
   sessions: "lumen://sessions",
   placement: "lumen://placement",
   shareRequest: "lumen://share-request",
+  lyrics: "lumen://lyrics",
 } as const;

@@ -8,6 +8,7 @@ import type {
   Accent,
   AppConfig,
   IslandState,
+  LyricLine,
   NowPlaying,
   SessionSummary,
   VolumeState,
@@ -31,6 +32,15 @@ class Island {
    * only side that knows where the window actually is.
    */
   mirrored = $state(false);
+
+  /**
+   * Timed lyrics for the current track, or an empty list.
+   *
+   * Delivered whole, once, when the track changes. The current line is picked
+   * from the same interpolated clock the progress bar uses, so following the
+   * song costs no IPC — the same rule everything else here follows.
+   */
+  lyrics = $state<LyricLine[]>([]);
 
   /** Only worth offering a switcher when there is somewhere to switch to. */
   canSwitch = $derived(this.sessions.length > 1);
@@ -112,6 +122,34 @@ class Island {
     return t.durationSec > 0 ? Math.min(raw, t.durationSec) : raw;
   }
 
+  /**
+   * The lyric line that should be showing at `clock`, or null.
+   *
+   * A binary search rather than a scan: this runs on every animation frame, and
+   * a long song is a few hundred lines.
+   */
+  lyricAt(clock: number): string | null {
+    if (this.lyrics.length === 0) return null;
+    const at = this.positionAt(clock);
+
+    let lo = 0;
+    let hi = this.lyrics.length - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if ((this.lyrics[mid]?.atSec ?? 0) <= at) {
+        found = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    // Before the first line, and during the instrumental gaps that are written
+    // as empty timed lines, there is deliberately nothing to show.
+    const text = found >= 0 ? this.lyrics[found]?.text : undefined;
+    return text && text.length > 0 ? text : null;
+  }
+
   #seekPending(clock: number): boolean {
     return this.#seekTo !== null && clock - this.#seekAt < Island.#SEEK_SETTLE_MS;
   }
@@ -131,6 +169,12 @@ class Island {
       }),
       on.placement((v) => {
         this.mirrored = v.mirrored;
+      }),
+      on.lyrics((v) => {
+        // A slow lookup can land after the user has already skipped on. Showing
+        // the previous song's words over the new one is worse than showing none.
+        if (v.sessionId !== this.now?.sessionId || v.revision !== this.now?.revision) return;
+        this.lyrics = v.lines;
       }),
       on.shareRequest(() => {
         // Nothing to share with nothing playing, and a card of "Nothing

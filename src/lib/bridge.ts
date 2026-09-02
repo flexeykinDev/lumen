@@ -9,6 +9,7 @@ import {
   type AppVolumeState,
   type IslandState,
   type NowPlaying,
+  type LyricsEvent,
   type PlacementEvent,
   type SessionSummary,
   type TransitionEvent,
@@ -98,6 +99,8 @@ export const on = {
     listen<SessionSummary[]>(EVT.sessions, (e) => fn(e.payload)),
   placement: (fn: (v: PlacementEvent) => void): Promise<UnlistenFn> =>
     listen<PlacementEvent>(EVT.placement, (e) => fn(e.payload)),
+  lyrics: (fn: (v: LyricsEvent) => void): Promise<UnlistenFn> =>
+    listen<LyricsEvent>(EVT.lyrics, (e) => fn(e.payload)),
   /// The tray asking for a share card. Only this side can draw one.
   shareRequest: (fn: () => void): Promise<UnlistenFn> =>
     listen(EVT.shareRequest, () => fn()),

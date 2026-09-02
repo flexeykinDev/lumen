@@ -20,6 +20,24 @@
   const title = $derived(now?.title?.trim() || "Nothing playing");
   const artist = $derived(now?.artist?.trim() || "");
 
+  // Lyric follow.
+  //
+  // A timer rather than requestAnimationFrame: lines change every few seconds,
+  // so 60 fps would be three hundred wasted wakeups per line, and there is
+  // already a rAF loop driving the progress bar. 200 ms is well inside what
+  // reads as "in time" and costs almost nothing.
+  //
+  // Gated on all three of expanded, playing and having lyrics, so a collapsed or
+  // paused capsule runs no timer at all — the same rule the marquee follows.
+  const LYRIC_TICK_MS = 200;
+  let lyricClock = $state(performance.now());
+  $effect(() => {
+    if (!island.expanded || !island.playing || island.lyrics.length === 0) return;
+    const id = setInterval(() => (lyricClock = performance.now()), LYRIC_TICK_MS);
+    return () => clearInterval(id);
+  });
+  const lyric = $derived(island.expanded ? island.lyricAt(lyricClock) : null);
+
   // One element that scales between the two layouts rather than two elements
   // crossfading, so the cover physically travels between states.
   //
@@ -326,7 +344,11 @@
     {#key now?.sessionId}
       <div class="meta swapping">
         <div class="title"><Marquee text={title} active={island.expanded} /></div>
-        <div class="artist">{artist || "—"}</div>
+        <!-- The lyric takes the artist's place rather than adding a row. The
+             panel is 118px and every row is already spoken for; a third line
+             would push the progress bar into the controls. The artist is on the
+             share card and in the tooltip, so nothing is actually lost. -->
+        <div class="artist" class:lyric={lyric !== null}>{lyric ?? artist ?? "—"}</div>
       </div>
     {/key}
 
@@ -768,6 +790,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* A lyric is the line worth reading, so it is brighter than the artist name it
+     replaces. Same size and position, so swapping between them never reflows. */
+  .artist.lyric {
+    color: var(--ink);
+    font-weight: 560;
   }
 
   .rail-row {

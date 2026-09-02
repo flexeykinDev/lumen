@@ -199,6 +199,24 @@ impl Default for Discord {
     }
 }
 
+/// Time-synced lyrics from LRCLIB.
+///
+/// **Off by default, and deliberately so.** This is the only feature that talks
+/// to the network: enabling it sends the artist, title, album and duration of
+/// whatever you play to `lrclib.net`. That is a fair trade for lyrics and not
+/// one to make on someone's behalf without asking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Lyrics {
+    pub enabled: bool,
+}
+
+impl Default for Lyrics {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
 /// Pause playback when the machine is locked.
 ///
 /// Only ever resumes what it paused itself, and only if the session is
@@ -254,6 +272,7 @@ pub struct Config {
     pub mouse: Mouse,
     pub discord: Discord,
     pub smart_pause: SmartPause,
+    pub lyrics: Lyrics,
 }
 
 impl Default for Config {
@@ -277,6 +296,7 @@ impl Default for Config {
             mouse: Mouse::default(),
             discord: Discord::default(),
             smart_pause: SmartPause::default(),
+            lyrics: Lyrics::default(),
         }
     }
 }

@@ -31,6 +31,10 @@ pub const EVT_PLACEMENT: &str = "lumen://placement";
 /// Ask the renderer to compose a share card. Sent by the tray, because only the
 /// renderer can draw one.
 pub const EVT_SHARE_REQUEST: &str = "lumen://share-request";
+/// Timed lyrics for one track, sent once when they arrive. The renderer picks
+/// the current line from the clock it already interpolates, so playback itself
+/// costs no IPC.
+pub const EVT_LYRICS: &str = "lumen://lyrics";
 
 /// Everything the renderer needs once, at boot.
 #[derive(Debug, Clone, Serialize)]

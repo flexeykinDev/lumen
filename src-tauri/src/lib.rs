@@ -10,6 +10,7 @@ pub mod color;
 pub mod config;
 pub mod input;
 pub mod ipc;
+pub mod lyrics;
 pub mod media;
 pub mod motion;
 pub mod policy;
@@ -205,9 +206,20 @@ pub fn run() {
                     app.manage(watcher);
                 }
 
+                // The only network feature, so it stays off unless asked for —
+                // enabling it sends what you are playing to a third party.
+                let lyrics = if cfg.get().lyrics.enabled {
+                    let emitter = handle.clone();
+                    Some(Arc::new(lyrics::LyricsService::start(move |l| {
+                        let _ = emitter.emit(ipc::EVT_LYRICS, &l);
+                    })))
+                } else {
+                    None
+                };
+
                 build_tray(app, Arc::clone(&policy), Arc::clone(&cfg))?;
                 install_mouse_hook(&handle, Arc::clone(&cfg), Arc::clone(&policy));
-                pump_media(handle, Arc::clone(&media), Arc::clone(&policy), presence);
+                pump_media(handle, Arc::clone(&media), Arc::clone(&policy), presence, lyrics);
 
                 Ok(())
             }
@@ -233,6 +245,7 @@ fn pump_media(
     media: Arc<dyn MediaBackend>,
     policy: Arc<Policy>,
     presence: Option<Arc<presence::Presence>>,
+    lyrics: Option<Arc<lyrics::LyricsService>>,
 ) {
     let mut rx = media.subscribe();
 
@@ -271,6 +284,9 @@ fn pump_media(
         if let Some(p) = presence.as_ref() {
             p.update(for_discord(&snapshot, paused_too));
         }
+        if let Some(l) = lyrics.as_ref() {
+            l.request(&snapshot);
+        }
         policy.on_media(&MediaEvent::TrackChanged(Box::new(snapshot)));
     }
 
@@ -286,6 +302,11 @@ fn pump_media(
                             // another player), so re-read rather than assuming
                             // the first reading still applies.
                             publish_app_volume(&app, &np.source);
+                            // One lookup per track: the service ignores repeats
+                            // for anything it has already fetched.
+                            if let Some(l) = lyrics.as_ref() {
+                                l.request(np);
+                            }
                             if let Some(p) = presence.as_ref() {
                                 p.update(for_discord(np, paused_too));
                             }
