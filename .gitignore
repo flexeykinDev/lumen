@@ -13,3 +13,8 @@ lumen.config.json
 # kept when a hand-edited file fails to parse.
 lumen.config.json.bak
 lumen.config.json.tmp
+
+# `tauri icon` emits Android/iOS sets; Lumen is Windows-only and
+# tauri.conf.json references none of them.
+src-tauri/icons/android/
+src-tauri/icons/ios/
