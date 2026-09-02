@@ -86,6 +86,22 @@ directory is read-only; the tray tooltip tells you which one is in use.
 | `mouse.taskbarWheelOverFullscreen` | bool | Keeps the wheel working where the bar would be when a game covers it, targeting the covering app |
 | `mouse.taskbarCloseButton` | `middle` \| `right` \| `none` | Which button closes the app under a taskbar button. `right` replaces the jump list |
 
+### Share cards
+
+Tray → **Copy share card** renders a 1200×600 image of what is playing — cover,
+title, artist, progress, source — puts it on the clipboard, and saves a copy to
+`%USERPROFILE%\Pictures\Lumen\`.
+
+It does not open a folder or pop a notification. The menu says copy, so it
+copies; paste it straight into Discord.
+
+The card is drawn on a `<canvas>` in the WebView rather than in Rust, because
+that side already has the fonts, the decoded artwork and the accent colour. Rust
+would need a font rasteriser and a second copy of the layout to maintain.
+
+The progress bar only appears when the source reports a duration. Live streams
+and some browser sources do not, and a full-width bar would be a lie.
+
 ### Smart pause
 
 Pauses playback when you lock the machine, and starts it again when you come

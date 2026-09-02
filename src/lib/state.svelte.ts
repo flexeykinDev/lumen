@@ -2,6 +2,7 @@
 // virtual DOM, and no derived value recomputed outside of what actually reads it.
 
 import { host, on, type RuntimeInfo } from "./bridge";
+import { shareCard } from "./sharecard";
 import { DURATION } from "./motion";
 import type {
   Accent,
@@ -130,6 +131,14 @@ class Island {
       }),
       on.placement((v) => {
         this.mirrored = v.mirrored;
+      }),
+      on.shareRequest(() => {
+        // Nothing to share with nothing playing, and a card of "Nothing
+        // playing" is worse than no card.
+        if (!this.now) return;
+        void shareCard(this.now, this.accent.base).catch((e) =>
+          console.error("share card failed", e),
+        );
       }),
       on.volume((v) => {
         // Only flag a "touch" when the level actually moved. The host also

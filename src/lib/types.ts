@@ -108,4 +108,5 @@ export const EVT = {
   appVolume: "lumen://app-volume",
   sessions: "lumen://sessions",
   placement: "lumen://placement",
+  shareRequest: "lumen://share-request",
 } as const;

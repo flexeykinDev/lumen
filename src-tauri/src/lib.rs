@@ -14,6 +14,7 @@ pub mod media;
 pub mod motion;
 pub mod policy;
 pub mod presence;
+pub mod share;
 pub mod smart_pause;
 pub mod single_instance;
 pub mod util;
@@ -93,6 +94,7 @@ pub fn run() {
             ipc::volume_toggle_mute_media,
             ipc::volume_set,
             ipc::volume_toggle_mute,
+            ipc::share_card,
         ])
         .setup({
             let cfg = Arc::clone(&cfg);
@@ -425,9 +427,12 @@ fn build_tray(
         cfg.path().is_some(),
         None::<&str>,
     )?;
+    let share = MenuItem::with_id(app, "share", "Copy share card", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Lumen", true, None::<&str>)?;
-    let menu =
-        Menu::with_items(app, &[&show, &open_cfg, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&show, &share, &open_cfg, &PredefinedMenuItem::separator(app)?, &quit],
+    )?;
 
     let tooltip = match cfg.path() {
         Some(p) => format!("Lumen — settings: {}", p.display()),
@@ -450,6 +455,10 @@ fn build_tray(
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "show" => policy.reveal(),
+            // Only the renderer can draw the card, so the tray just asks.
+            "share" => {
+                let _ = app.emit(ipc::EVT_SHARE_REQUEST, ());
+            }
             "config" => {
                 if let Some(path) = cfg.path() {
                     // `/select,` opens Explorer with the file highlighted.

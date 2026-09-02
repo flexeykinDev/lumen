@@ -28,6 +28,9 @@ pub const EVT_SESSIONS: &str = "lumen://sessions";
 /// Which way round the capsule's contents belong. Changes when the island is
 /// docked to, or dragged to, the other half of the screen.
 pub const EVT_PLACEMENT: &str = "lumen://placement";
+/// Ask the renderer to compose a share card. Sent by the tray, because only the
+/// renderer can draw one.
+pub const EVT_SHARE_REQUEST: &str = "lumen://share-request";
 
 /// Everything the renderer needs once, at boot.
 #[derive(Debug, Clone, Serialize)]
@@ -235,6 +238,48 @@ pub fn volume_toggle_mute(ctx: State<'_, Ctx>) {
     if let Some(v) = ctx.volume.as_ref() {
         v.toggle_mute();
     }
+}
+
+/// Where a saved share card ended up, for the renderer to confirm.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedCard {
+    pub path: String,
+    /// False when the image could not be put on the clipboard. The file is
+    /// still written, so this is worth reporting rather than failing.
+    pub copied: bool,
+}
+
+/// Save a card the renderer composed, and copy it to the clipboard.
+///
+/// The bytes are a PNG from a `<canvas>`; see `share` for why the drawing does
+/// not happen on this side.
+#[tauri::command]
+pub fn share_card(ctx: State<'_, Ctx>, png: Vec<u8>) -> Result<SavedCard, String> {
+    let now = ctx.media.snapshot();
+    let (title, artist) = now
+        .as_ref()
+        .map(|n| (n.title.as_str(), n.artist.as_str()))
+        .unwrap_or(("Lumen", ""));
+
+    let path = crate::share::save(&png, title, artist).map_err(|e| format!("{e:#}"))?;
+
+    // A clipboard that is momentarily locked by another application is common
+    // and not worth losing the card over, so this is reported, not fatal.
+    let copied = match crate::share::copy_to_clipboard(&png) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!("share card saved but not copied: {e:#}");
+            false
+        }
+    };
+
+    // Deliberately does not open Explorer. The menu item says "copy", and
+    // popping a file browser over whatever the user was doing every time they
+    // share a track is a much louder response than the action asked for. The
+    // path is logged, and the folder is documented.
+    tracing::info!("share card saved to {}", path.display());
+    Ok(SavedCard { path: path.display().to_string(), copied })
 }
 
 #[tauri::command]

@@ -77,6 +77,8 @@ export const host = {
   volumeToggleMuteMedia: () => invoke<void>("volume_toggle_mute_media"),
   volumeSet: (scalar: number) => invoke<void>("volume_set", { scalar }),
   volumeToggleMute: () => invoke<void>("volume_toggle_mute"),
+  /// Hands a canvas-rendered PNG to the host, which writes it and copies it.
+  shareCard: (png: number[]) => invoke<{ path: string; copied: boolean }>("share_card", { png }),
 };
 
 export const on = {
@@ -96,4 +98,7 @@ export const on = {
     listen<SessionSummary[]>(EVT.sessions, (e) => fn(e.payload)),
   placement: (fn: (v: PlacementEvent) => void): Promise<UnlistenFn> =>
     listen<PlacementEvent>(EVT.placement, (e) => fn(e.payload)),
+  /// The tray asking for a share card. Only this side can draw one.
+  shareRequest: (fn: () => void): Promise<UnlistenFn> =>
+    listen(EVT.shareRequest, () => fn()),
 };
