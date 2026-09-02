@@ -1,4 +1,4 @@
-﻿//! Portable configuration.
+//! Portable configuration.
 //!
 //! Preferred location is `lumen.config.json` beside the executable, so the app
 //! stays a drop-anywhere single file. If that directory is not writable (Program
@@ -176,6 +176,29 @@ impl Default for Mouse {
     }
 }
 
+/// Discord Rich Presence.
+///
+/// Off unless an `applicationId` is supplied, because there is no sensible
+/// default: presence is published *as* a Discord application, and the name and
+/// artwork people will see belong to whoever created it. A shared id baked in
+/// here would show someone else's branding on your profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Discord {
+    pub enabled: bool,
+    /// Client id from <https://discord.com/developers/applications>. The
+    /// application's *name* is what renders as "Listening to …".
+    pub application_id: String,
+    /// Keep the presence up while paused, rather than clearing it.
+    pub show_while_paused: bool,
+}
+
+impl Default for Discord {
+    fn default() -> Self {
+        Self { enabled: true, application_id: String::new(), show_while_paused: false }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
@@ -210,6 +233,7 @@ pub struct Config {
     pub volume_step: f32,
     pub hotkeys: Hotkeys,
     pub mouse: Mouse,
+    pub discord: Discord,
 }
 
 impl Default for Config {
@@ -231,6 +255,7 @@ impl Default for Config {
             volume_step: 0.02,
             hotkeys: Hotkeys::default(),
             mouse: Mouse::default(),
+            discord: Discord::default(),
         }
     }
 }

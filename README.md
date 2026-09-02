@@ -86,6 +86,33 @@ directory is read-only; the tray tooltip tells you which one is in use.
 | `mouse.taskbarWheelOverFullscreen` | bool | Keeps the wheel working where the bar would be when a game covers it, targeting the covering app |
 | `mouse.taskbarCloseButton` | `middle` \| `right` \| `none` | Which button closes the app under a taskbar button. `right` replaces the jump list |
 
+### Discord Rich Presence
+
+Shows the current track on your Discord profile as *Listening to …*, with the
+title, artist, album and a live progress clock. It clears when playback stops.
+
+It needs a Discord application id, and there is deliberately no default:
+presence is published *as* an application, so the name and icon everyone sees
+belong to whoever created it. Baking in a shared one would put a stranger's
+branding on your profile.
+
+1. Create an app at <https://discord.com/developers/applications>. **Its name is
+   what renders after "Listening to"** — call it Lumen.
+2. Copy the Application ID from General Information.
+3. Under Rich Presence → Art Assets, upload an image named `lumen`.
+4. Put the id in `lumen.config.json`:
+
+```json
+"discord": { "enabled": true, "applicationId": "your-id-here", "showWhilePaused": false }
+```
+
+**Album art is the app icon, not the cover.** Windows hands the cover to Lumen
+as raw bytes with no URL anywhere, and Discord will only display an image it can
+fetch — an uploaded asset or a link. Showing the real cover would mean uploading
+every track's artwork to some third-party host, which is not a thing a local
+music widget should do quietly. The field is wired for the day a source provides
+a URL directly.
+
 ### Taskbar volume
 
 Scroll over a taskbar button and you move **that application's** volume, not the

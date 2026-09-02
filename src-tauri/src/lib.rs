@@ -13,6 +13,7 @@ pub mod ipc;
 pub mod media;
 pub mod motion;
 pub mod policy;
+pub mod presence;
 pub mod single_instance;
 pub mod util;
 pub mod window;
@@ -29,7 +30,7 @@ use crate::{
     config::ConfigStore,
     input::{HotkeyService, MouseAction, MouseHook},
     ipc::{Ctx, RuntimeInfo},
-    media::{MediaBackend, MediaEvent, smtc::SmtcBackend},
+    media::{MediaBackend, MediaEvent, NowPlaying, smtc::SmtcBackend},
     policy::Policy,
     window::Island,
 };
@@ -159,9 +160,29 @@ pub fn run() {
                     info,
                 });
 
+                // Presence is published *as* a Discord application, so without an
+                // id there is nothing to publish as — and no id can be supplied
+                // by default without putting someone else's name on the user's
+                // profile. Say so once rather than failing silently.
+                let discord = cfg.get().discord;
+                let presence = if !discord.enabled {
+                    None
+                } else if discord.application_id.trim().is_empty() {
+                    tracing::info!(
+                        "Discord presence is on but has no applicationId; \
+                         create one at https://discord.com/developers/applications \
+                         and put its client id in lumen.config.json"
+                    );
+                    None
+                } else {
+                    Some(Arc::new(presence::Presence::start(
+                        discord.application_id.trim().to_owned(),
+                    )))
+                };
+
                 build_tray(app, Arc::clone(&policy), Arc::clone(&cfg))?;
                 install_mouse_hook(&handle, Arc::clone(&cfg), Arc::clone(&policy));
-                pump_media(handle, Arc::clone(&media), Arc::clone(&policy));
+                pump_media(handle, Arc::clone(&media), Arc::clone(&policy), presence);
 
                 Ok(())
             }
@@ -182,8 +203,24 @@ pub fn run() {
 ///
 /// Runs on Tauri's async runtime; `broadcast::Receiver` yields only when Windows
 /// actually raises an event, so this task is asleep at idle.
-fn pump_media(app: tauri::AppHandle, media: Arc<dyn MediaBackend>, policy: Arc<Policy>) {
+fn pump_media(
+    app: tauri::AppHandle,
+    media: Arc<dyn MediaBackend>,
+    policy: Arc<Policy>,
+    presence: Option<Arc<presence::Presence>>,
+) {
     let mut rx = media.subscribe();
+
+    /// What Discord should be showing for a given media state.
+    ///
+    /// Paused is a deliberate choice rather than an oversight: a profile that
+    /// still says "listening" hours after the music stopped is worse than one
+    /// that says nothing, so a pause clears it unless asked otherwise.
+    fn for_discord(np: &NowPlaying, paused_too: bool) -> Option<NowPlaying> {
+        let worth_showing =
+            np.state == media::PlaybackState::Playing || (paused_too && np.state == media::PlaybackState::Paused);
+        worth_showing.then(|| np.clone())
+    }
 
     /// Ask the volume actor to report the playing app's own level.
     ///
@@ -197,10 +234,18 @@ fn pump_media(app: tauri::AppHandle, media: Arc<dyn MediaBackend>, policy: Arc<P
         }
     }
 
+    let paused_too = app
+        .try_state::<Ctx>()
+        .map(|ctx| ctx.cfg.get().discord.show_while_paused)
+        .unwrap_or(false);
+
     // Catch up on anything that arrived between backend start and window ready.
     if let Some(snapshot) = media.snapshot() {
         let _ = app.emit(ipc::EVT_NOW_PLAYING, &snapshot);
         publish_app_volume(&app, &snapshot.source);
+        if let Some(p) = presence.as_ref() {
+            p.update(for_discord(&snapshot, paused_too));
+        }
         policy.on_media(&MediaEvent::TrackChanged(Box::new(snapshot)));
     }
 
@@ -216,12 +261,24 @@ fn pump_media(app: tauri::AppHandle, media: Arc<dyn MediaBackend>, policy: Arc<P
                             // another player), so re-read rather than assuming
                             // the first reading still applies.
                             publish_app_volume(&app, &np.source);
+                            if let Some(p) = presence.as_ref() {
+                                p.update(for_discord(np, paused_too));
+                            }
                         }
                         MediaEvent::TimelineChanged(np) => {
                             let _ = app.emit(ipc::EVT_NOW_PLAYING, np.as_ref());
+                            // Sent so a seek corrects Discord's running clock.
+                            // The actor de-duplicates and rate-limits, so the
+                            // steady stream of timeline events costs nothing.
+                            if let Some(p) = presence.as_ref() {
+                                p.update(for_discord(np, paused_too));
+                            }
                         }
                         MediaEvent::Vanished => {
                             let _ = app.emit(ipc::EVT_NOW_PLAYING, Option::<()>::None);
+                            if let Some(p) = presence.as_ref() {
+                                p.update(None);
+                            }
                         }
                         // Forwarded so the renderer knows whether a switcher
                         // affordance is worth showing at all.
