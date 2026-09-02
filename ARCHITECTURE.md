@@ -114,7 +114,12 @@ How the design gets there:
 - The `WH_MOUSE_LL` hook (Phase 2) is callback-driven.
 - Verified idle state: zero timers, zero rAF, zero polling.
 
-### `Portable single .exe < 10 MB` — **met**, measured at **3.78 MB**
+### `Portable single .exe < 10 MB` — **met**, measured at **4.00 MB**
+Re-measured after Phases 3 and 4, which added Discord presence, a session
+watcher, a share-card writer, lyrics over WinHTTP, and a loopback spectrum with
+its own FFT. That cost 0.22 MB in total, because none of it pulled in a
+dependency: no HTTP client, no TLS stack, no HTML parser, no FFT crate.
+
 `opt-level="z"`, `lto="fat"`, `codegen-units=1`, `panic="abort"`, `strip=true`,
 no Tauri plugins, `image` with only `png`+`jpeg` decoders. The NSIS installer,
 for anyone who wants one, is 1.33 MB.
@@ -134,11 +139,26 @@ What this project actually does about it:
 - Single window, single renderer — the tray menu is native, not HTML.
 - No frameworks at runtime: Svelte 5 compiles to ~12 KB of JS, no virtual DOM.
 
-Realistic total: **~70–100 MB working set**, of which Lumen's own code is ~12 MB.
-If <20 MB total is a hard requirement rather than a target, the renderer has to be
-Direct2D/WinUI composition instead of WebView2 — that is a different project, and
-it would cost you the CSS-driven animation quality this design is built on.
-Say the word and I'll cost it out.
+**Measured, not estimated.** An earlier draft of this section guessed
+"~70–100 MB working set". That was optimistic by four to five times. Idle, with
+a track loaded, on the release build:
+
+| | |
+|---|---|
+| `lumen.exe` | **36 MB** working set |
+| six `msedgewebview2.exe` children | browser, GPU, renderer, network, two utility |
+| **total working set** | **405–476 MB** |
+| **total private bytes** | **~203 MB** |
+
+Private bytes is the fairer number — much of the working set is shared pages
+that would be resident anyway on a machine already running Edge or another
+WebView2 app. Either way the budget is missed by an order of magnitude, and it
+is the renderer, not this code: the Rust host is 36 MB of it.
+
+If <20 MB is a hard requirement rather than a target, the renderer has to be
+Direct2D/WinUI composition instead of WebView2. That is a different project, and
+it would cost the CSS-driven animation this design is built on — the karaoke
+sweep, the glass, the spring easing. Say the word and I'll cost it out.
 
 ---
 
@@ -236,9 +256,39 @@ matcher.
 
 ## 5. Phase plan
 
-- **Phase 1 (this pass)** — window + Mica + shape animation, SMTC, album art,
-  progress, accent extraction, hotkeys, auto show/hide, tray, config.
+All four phases are complete.
+
+- **Phase 1** — window, Acrylic, geometry animation, SMTC, album art, progress,
+  accent extraction, hotkeys, auto show/hide, tray, config. ✅
 - **Phase 2** — `WH_MOUSE_LL` (taskbar wheel → volume, middle-click → close,
-  Alt+middle → kill), session switcher.
-- **Phase 3** — Discord RPC, smart pause, cover crossfade polish, drag-to-position.
-- **Phase 4** — lyrics overlay, spectrum, share card.
+  Alt+middle → quit), per-app volume, session switcher. ✅
+- **Phase 3** — Discord Rich Presence, pause-on-lock, drag-to-dock with flick
+  snapping. ✅
+- **Phase 4** — lyrics with karaoke sweep, live spectrum, share cards. ✅
+
+### Verified by someone actually looking
+
+Everything above was checked against the running application, not just compiled:
+dock anchors measured at 100% and 150% scaling, per-app volume read back through
+Core Audio, the spectrum's cost measured rather than assumed, share cards opened
+and inspected.
+
+Three things are **implemented but not confirmed end to end**, each blocked on
+something this machine cannot provide:
+
+| | what is missing |
+|---|---|
+| Discord presence connecting | a real application id, which only the account owner can create — the transport is verified against a rejection |
+| Smart pause firing on a real lock | `LockWorkStation()` would lock the user out; the decision rule has nine tests and the registration is confirmed |
+| Multi-monitor placement | a second display; the placement maths is mutation-tested against offset and negative-origin monitors |
+
+### Known to be imperfect
+
+- **Estimated lyric timings drift.** A lyrics page writes a chorus once where it
+  is sung three times, so no arithmetic recovers timings that were never
+  recorded. Weighted by line length, adjustable via `estimatedOffsetMs`, and
+  styled differently so they never pass as measured.
+- **The Genius fallback is a scraper** and will break when their markup changes.
+  A live test says when.
+- **Idle RAM misses its budget** by an order of magnitude — see §3. That is
+  WebView2, not this code.

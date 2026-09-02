@@ -265,11 +265,13 @@ on its final frame. The equaliser bars animate only during playback.
 `strip`, and no Tauri plugins. (An NSIS installer is also produced, 1.33 MB, if
 you prefer one — the bare exe needs no installation.)
 
-**Idle RAM < 20 MB — not met, and it cannot be with WebView2.** The Rust host
-process sits at ~10–14 MB, inside budget. But WebView2 spawns
-`msedgewebview2.exe` (browser + GPU + renderer) and that tree is ~55–90 MB no
-matter what the app does. Lumen trims what it can — one renderer process, no
-out-of-process UI helpers, no background networking, a 48 KB Svelte bundle with
+**Idle RAM < 20 MB — not met, and it cannot be with WebView2.** Measured on the
+release build, idle with a track loaded: `lumen.exe` is 36 MB, and the six
+`msedgewebview2.exe` children it spawns bring the tree to **405–476 MB working
+set / ~203 MB private**. An earlier version of this note guessed "~55–90 MB";
+that was optimistic by four to five times, and the measured figures are the ones
+to plan against. Lumen trims what it can — one renderer process, no
+out-of-process UI helpers, no background networking, a 59 KB Svelte bundle with
 no runtime framework — but the floor is set by Chromium, not by this code.
 Getting under 20 MB total means dropping WebView2 for Direct2D/WinUI composition,
 which is a different program and costs the CSS-driven animation quality this
