@@ -209,11 +209,17 @@ impl Default for Discord {
 #[serde(rename_all = "camelCase", default)]
 pub struct Lyrics {
     pub enabled: bool,
+    /// Fall back to scraping Genius when LRCLIB has no timed lyrics.
+    ///
+    /// Separate from enabled because it is a different kind of thing: Genius
+    /// has no lyrics API, so this reads their web page and will break whenever
+    /// that page changes. The timings it produces are guesses.
+    pub genius_fallback: bool,
 }
 
 impl Default for Lyrics {
     fn default() -> Self {
-        Self { enabled: false }
+        Self { enabled: false, genius_fallback: true }
     }
 }
 

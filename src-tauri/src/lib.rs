@@ -208,9 +208,10 @@ pub fn run() {
 
                 // The only network feature, so it stays off unless asked for —
                 // enabling it sends what you are playing to a third party.
-                let lyrics = if cfg.get().lyrics.enabled {
+                let lyrics_conf = cfg.get().lyrics;
+                let lyrics = if lyrics_conf.enabled {
                     let emitter = handle.clone();
-                    Some(Arc::new(lyrics::LyricsService::start(move |l| {
+                    Some(Arc::new(lyrics::LyricsService::start(lyrics_conf.genius_fallback, move |l| {
                         let _ = emitter.emit(ipc::EVT_LYRICS, &l);
                     })))
                 } else {

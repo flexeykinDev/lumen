@@ -107,6 +107,9 @@ export interface LyricsEvent {
   /// The source had words but no timings, which is worth distinguishing from
   /// having no lyrics at all.
   plainOnly: boolean;
+  /// Timings were guessed by spreading plain lines across the track, not read
+  /// from a .lrc. The UI shows these with less confidence because they drift.
+  estimated: boolean;
 }
 
 export interface SessionSummary {

@@ -20,23 +20,42 @@
   const title = $derived(now?.title?.trim() || "Nothing playing");
   const artist = $derived(now?.artist?.trim() || "");
 
-  // Lyric follow.
+  // Lyric follow, with no polling at all.
   //
-  // A timer rather than requestAnimationFrame: lines change every few seconds,
-  // so 60 fps would be three hundred wasted wakeups per line, and there is
-  // already a rAF loop driving the progress bar. 200 ms is well inside what
-  // reads as "in time" and costs almost nothing.
+  // The obvious build is a timer that re-reads the clock and repaints. Even at
+  // 200 ms that is five wakeups a second forever, and the karaoke fill would
+  // step rather than sweep. Instead:
   //
-  // Gated on all three of expanded, playing and having lyrics, so a collapsed or
-  // paused capsule runs no timer at all — the same rule the marquee follows.
-  const LYRIC_TICK_MS = 200;
-  let lyricClock = $state(performance.now());
-  $effect(() => {
-    if (!island.expanded || !island.playing || island.lyrics.length === 0) return;
-    const id = setInterval(() => (lyricClock = performance.now()), LYRIC_TICK_MS);
-    return () => clearInterval(id);
+  //   - the *sweep* is a CSS animation over `--fill`, so it runs on the
+  //     compositor at whatever frame rate the machine is already painting at,
+  //     and costs the main thread nothing;
+  //   - a negative `animation-delay` starts it partway through, which is what
+  //     makes a seek or a late-arriving lyric land in the right place;
+  //   - `animation-play-state` follows playback, so pausing freezes the sweep
+  //     without any JavaScript noticing;
+  //   - and the only timer is a single `setTimeout` scheduled for the exact
+  //     moment the next line begins.
+  //
+  // So one wakeup per lyric line, rather than five per second.
+  let lyricEpoch = $state(0);
+  const lyric = $derived.by(() => {
+    // `lyricEpoch` is read so the derivation re-runs when the boundary fires.
+    lyricEpoch;
+    return island.expanded ? island.lyricAt(performance.now()) : null;
   });
-  const lyric = $derived(island.expanded ? island.lyricAt(lyricClock) : null);
+
+  $effect(() => {
+    // Re-arms whenever the epoch, the track, playback or visibility changes.
+    lyricEpoch;
+    if (!island.expanded || !island.playing || island.lyrics.length === 0) return;
+
+    const until = island.nextLyricBoundary(performance.now());
+    if (until === null) return;
+    // A floor so a pile-up of near-identical timestamps — which estimated
+    // timings can produce on a short track — cannot spin this into a busy loop.
+    const id = setTimeout(() => (lyricEpoch += 1), Math.max(50, until * 1000));
+    return () => clearTimeout(id);
+  });
 
   // One element that scales between the two layouts rather than two elements
   // crossfading, so the cover physically travels between states.
@@ -348,7 +367,23 @@
              panel is 118px and every row is already spoken for; a third line
              would push the progress bar into the controls. The artist is on the
              share card and in the tooltip, so nothing is actually lost. -->
-        <div class="artist" class:lyric={lyric !== null}>{lyric ?? artist ?? "—"}</div>
+        {#if lyric}
+          <!-- Keyed on the text so each new line restarts its own animation
+               rather than continuing the previous line's sweep. -->
+          {#key lyric.text}
+            <div
+              class="artist lyric"
+              class:estimated={island.lyricsEstimated}
+              style:--sweep="{lyric.duration}s"
+              style:--sweep-delay="{-lyric.elapsed}s"
+              style:--sweep-state={island.playing ? "running" : "paused"}
+            >
+              {lyric.text}
+            </div>
+          {/key}
+        {:else}
+          <div class="artist">{artist || "—"}</div>
+        {/if}
       </div>
     {/key}
 
@@ -792,11 +827,66 @@
     text-overflow: ellipsis;
   }
 
-  /* A lyric is the line worth reading, so it is brighter than the artist name it
-     replaces. Same size and position, so swapping between them never reflows. */
+  /* --- karaoke fill ---
+     `--fill` is registered so it can be *animated*. A bare custom property is a
+     string as far as the engine is concerned and jumps from 0% to 100%; giving
+     it a syntax makes it a real percentage the compositor can interpolate,
+     which is what turns this from a step into a sweep. */
+  @property --fill {
+    syntax: "<percentage>";
+    inherits: false;
+    initial-value: 0%;
+  }
+
+  /* Two-stop gradient clipped to the glyphs: everything left of `--fill` is lit,
+     everything right of it is the dim ink the artist line uses. One element and
+     one animated property, so the whole effect stays on the compositor.
+     The stops are coincident, so the boundary is a clean edge rather than a
+     blur creeping ahead of the words. */
   .artist.lyric {
-    color: var(--ink);
     font-weight: 560;
+    background-image: linear-gradient(
+      90deg,
+      var(--ink) var(--fill),
+      var(--ink-dim) var(--fill)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: karaoke var(--sweep, 3s) linear var(--sweep-delay, 0s) 1 both;
+    animation-play-state: var(--sweep-state, paused);
+  }
+
+  /* Estimated timings are a guess — plain lyrics spread evenly across the track
+     — and they drift. Saying so quietly is better than presenting a guess with
+     the confidence of a measurement: the words stay readable, the sweep just
+     does not claim to be exact. */
+  .artist.lyric.estimated {
+    background-image: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--ink) 80%, transparent) var(--fill),
+      var(--ink-faint) var(--fill)
+    );
+    font-style: italic;
+  }
+
+  @keyframes karaoke {
+    from {
+      --fill: 0%;
+    }
+    to {
+      --fill: 100%;
+    }
+  }
+
+  /* Someone who has asked for less motion should not get a sweeping highlight;
+     the line still changes, it simply arrives fully lit. */
+  @media (prefers-reduced-motion: reduce) {
+    .artist.lyric {
+      animation: none;
+      background-image: none;
+      color: var(--ink);
+    }
   }
 
   .rail-row {

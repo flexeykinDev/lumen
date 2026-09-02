@@ -42,6 +42,9 @@ class Island {
    */
   lyrics = $state<LyricLine[]>([]);
 
+  /// True when the timings were estimated rather than read from a .lrc.
+  lyricsEstimated = $state(false);
+
   /** Only worth offering a switcher when there is somewhere to switch to. */
   canSwitch = $derived(this.sessions.length > 1);
 
@@ -123,12 +126,17 @@ class Island {
   }
 
   /**
-   * The lyric line that should be showing at `clock`, or null.
+   * The lyric line active at `clock`, with enough to animate its fill.
    *
-   * A binary search rather than a scan: this runs on every animation frame, and
-   * a long song is a few hundred lines.
+   * `elapsed` and `duration` are what let the renderer run the karaoke sweep as
+   * a plain CSS animation with a negative delay, rather than repainting text on
+   * a timer — see `Island.svelte`. Returning them here keeps the one piece of
+   * arithmetic that has to agree with the clock in the same place as the clock.
+   *
+   * A binary search rather than a scan: a long song is a few hundred lines and
+   * this is called on every line change and every seek.
    */
-  lyricAt(clock: number): string | null {
+  lyricAt(clock: number): { text: string; elapsed: number; duration: number } | null {
     if (this.lyrics.length === 0) return null;
     const at = this.positionAt(clock);
 
@@ -144,10 +152,33 @@ class Island {
         hi = mid - 1;
       }
     }
-    // Before the first line, and during the instrumental gaps that are written
-    // as empty timed lines, there is deliberately nothing to show.
-    const text = found >= 0 ? this.lyrics[found]?.text : undefined;
-    return text && text.length > 0 ? text : null;
+    if (found < 0) return null;
+
+    const line = this.lyrics[found];
+    // Empty timed lines mark instrumental gaps; there is deliberately nothing
+    // to show through them.
+    if (!line || line.text.length === 0) return null;
+
+    // The last line has no successor to bound it, so it runs to the end of the
+    // track — or, on a source that reports no duration, for a plain few seconds
+    // rather than forever.
+    const next = this.lyrics[found + 1]?.atSec;
+    const trackEnd = this.now?.timeline.durationSec ?? 0;
+    const end = next ?? (trackEnd > line.atSec ? trackEnd : line.atSec + 4);
+
+    return {
+      text: line.text,
+      elapsed: Math.max(0, at - line.atSec),
+      duration: Math.max(0.2, end - line.atSec),
+    };
+  }
+
+  /** When the line active at `clock` gives way to the next one, in seconds. */
+  nextLyricBoundary(clock: number): number | null {
+    if (this.lyrics.length === 0) return null;
+    const at = this.positionAt(clock);
+    const next = this.lyrics.find((l) => l.atSec > at);
+    return next ? next.atSec - at : null;
   }
 
   #seekPending(clock: number): boolean {
@@ -175,6 +206,7 @@ class Island {
         // the previous song's words over the new one is worse than showing none.
         if (v.sessionId !== this.now?.sessionId || v.revision !== this.now?.revision) return;
         this.lyrics = v.lines;
+        this.lyricsEstimated = v.estimated;
       }),
       on.shareRequest(() => {
         // Nothing to share with nothing playing, and a card of "Nothing

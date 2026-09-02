@@ -101,12 +101,43 @@ listening, and that is your call to make, not a default to inherit.
 "lyrics": { "enabled": true }
 ```
 
-One request per track, never per line: the whole timed lyric arrives in a single
-event and the current line is picked from the clock the progress bar already
-runs, so following along costs no IPC and no polling.
+The active line sweeps left to right as it is sung.
 
-Many tracks have only unsynced words, and some have none. Both cases simply
-leave the artist name showing.
+```json
+"lyrics": { "enabled": true, "geniusFallback": true }
+```
+
+**Three sources, each worse than the last:**
+
+| source | timings | shown as |
+|---|---|---|
+| LRCLIB synced `.lrc` | real, per line | normal |
+| LRCLIB plain text | **guessed** | italic, dimmer |
+| Genius page | **guessed** | italic, dimmer |
+
+Guessed timings come from spreading the lines evenly across the track, skipping
+a little intro and outro. On real music this drifts — verses are dense, choruses
+repeat, instrumental breaks are silent — so estimated lyrics are styled
+differently rather than presented with the confidence of a measurement. An
+estimate that looks exactly like a fact is the failure worth avoiding.
+
+**`geniusFallback` is a scraper, not an API.** Genius has no lyrics endpoint and
+their terms prohibit serving lyrics through the API, so this reads their web
+page. It depends on markup that can change without notice and it will break
+sometimes; set it to `false` if you would rather it did not. There is a live
+test for exactly this reason:
+
+```bash
+cargo test -- --ignored genius
+```
+
+One request per track, never per line. The whole timed lyric arrives in a single
+event, and the sweep is a CSS animation with a negative delay — so there is no
+polling, no per-frame JavaScript, and exactly one timer, scheduled for the
+moment the next line begins. Pausing freezes the sweep; `prefers-reduced-motion`
+turns it off entirely.
+
+Tracks with no lyrics anywhere simply leave the artist name showing.
 
 ### Share cards
 
