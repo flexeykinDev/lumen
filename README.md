@@ -185,16 +185,17 @@ user may already have bound.
 Accepts `Ctrl+KeyA` and `ctrl+a` shorthand. A binding another app already owns
 is logged and skipped; the rest still work.
 
-### Discord setup
+### Discord
 
-Presence is published *as* a Discord application, so it needs an id and there is
-no sensible default — a shared one would put a stranger's name on your profile.
+Works out of the box: presence is published as Lumen's own Discord application,
+so a fresh install shows "Listening to Lumen" with the cover, the timestamps and
+the buttons, with nothing to configure.
 
-1. Create an app at <https://discord.com/developers/applications>. Its name is
-   what renders after "Listening to".
-2. Copy the Application ID into settings → Discord.
-3. Under Rich Presence → Art Assets, upload an image named `lumen` (the fallback
-   image, and the small badge on the album cover).
+To publish under your own name instead, create an application at
+<https://discord.com/developers/applications> — its name is what renders after
+"Listening to" — and paste its id into settings → Discord. Upload an image named
+`lumen` under Rich Presence → Art Assets for the fallback artwork and the small
+badge.
 
 Buttons never render on your own profile — only other people see them — and
 Discord draws them only for a *Playing* activity. `discord.activity` is the

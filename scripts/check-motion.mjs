@@ -5,10 +5,31 @@
 // edge separates from its contents mid-transition — a bug that is obvious on
 // screen and invisible in every other test.
 //
-// The .ts module is imported directly: Node strips the types itself, so this
-// tests the exact source the bundler ships rather than a transformed copy.
+// The .ts module is loaded by stripping its types here rather than by importing
+// it: `import "./motion.ts"` only works on a Node new enough to strip types
+// itself (24, or 22 behind a flag), which made this script pass locally and
+// fail on CI's Node 20. The substitutions below are deliberately narrow — they
+// remove annotations and nothing else, so it is still the shipped source being
+// tested and not a rewritten copy.
 
-import { EASE_CSS, ease } from "../src/lib/motion.ts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const source = readFileSync(
+  fileURLToPath(new URL("../src/lib/motion.ts", import.meta.url)),
+  "utf8",
+);
+
+const javascript = source
+  // Parameter and return annotations: `(x: number): number`.
+  .replace(/:\s*(number|string)(\s*[,)=;])/g, "$2")
+  .replace(/\)\s*:\s*(number|string)\s*\{/g, ") {")
+  // `} as const;`
+  .replace(/\s+as\s+const/g, "");
+
+const { EASE_CSS, ease } = await import(
+  `data:text/javascript;base64,${Buffer.from(javascript, "utf8").toString("base64")}`
+);
 
 // cubic-bezier(0.22, 1, 0.36, 1) solved by 200-step bisection — an independent
 // method from the Newton solver under test. Identical table to the Rust test in

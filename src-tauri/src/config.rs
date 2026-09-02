@@ -211,10 +211,13 @@ impl Default for Mouse {
 
 /// Discord Rich Presence.
 ///
-/// Off unless an `applicationId` is supplied, because there is no sensible
-/// default: presence is published *as* a Discord application, and the name and
-/// artwork people will see belong to whoever created it. A shared id baked in
-/// here would show someone else's branding on your profile.
+/// Presence is published *as* a Discord application, so it needs an id. The
+/// default is Lumen's own: the application is called Lumen and its artwork is
+/// Lumen's, so "Listening to Lumen" is accurate for everyone rather than
+/// borrowed branding — which is the only reason this used to be blank.
+///
+/// Anyone who wants their profile to say something else creates their own
+/// application and pastes its id over this one.
 /// Which activity type the presence is published as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -239,6 +242,11 @@ impl ActivityKind {
         matches!(self, Self::Playing)
     }
 }
+
+/// Lumen's own Discord application. Not a secret: a client id is public by
+/// design — it is what every Rich Presence integration puts on the wire, and it
+/// grants nothing on its own.
+pub const DEFAULT_APPLICATION_ID: &str = "1544611850946224128";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -310,7 +318,7 @@ impl Default for Discord {
         Self {
             enabled: true,
             activity: ActivityKind::Listening,
-            application_id: String::new(),
+            application_id: DEFAULT_APPLICATION_ID.into(),
             show_while_paused: false,
             show_artist: true,
             show_album: true,
@@ -829,6 +837,19 @@ mod tests {
         assert_eq!(cfg.discord.activity, ActivityKind::Listening);
         assert_eq!(cfg.lyrics.offset_ms, 0);
         assert!(cfg.hotkeys.repeat.is_empty());
+    }
+
+    #[test]
+    fn presence_works_out_of_the_box() {
+        // The default is Lumen's own application, so a fresh install shows
+        // "Listening to Lumen" without anyone visiting the developer portal.
+        let discord = Discord::default();
+        assert!(discord.enabled);
+        assert_eq!(discord.application_id, DEFAULT_APPLICATION_ID);
+        assert!(
+            discord.application_id.chars().all(|c| c.is_ascii_digit()),
+            "a Discord client id is a bare snowflake; anything else is rejected at the handshake"
+        );
     }
 
     #[test]
