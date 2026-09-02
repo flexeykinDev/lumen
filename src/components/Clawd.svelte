@@ -18,29 +18,78 @@
   interface Props {
     playing: boolean;
     pet: AppConfig["pet"];
+    /** Bumped when the track changes, so a random dance can pick again. */
+    revision?: number;
     /** True for the copy that lives in the expanded panel. */
     expanded?: boolean;
   }
 
-  const { playing, pet, expanded = false }: Props = $props();
+  const { playing, pet, revision = 0, expanded = false }: Props = $props();
+
+  const DANCES = ["bob", "sway", "hop", "spin"] as const;
 
   // Local, not persisted: a toy that remembers a mood across restarts is a
   // setting, and the setting is in Settings.
-  let dancing = $state(true);
-  const active = $derived(dancing && playing);
+  let awake = $state(true);
+  /** Set for the length of the reaction whenever he is poked. */
+  let poked = $state(false);
+  let pokeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * Which dance is running.
+   *
+   * `random` picks per *track*: a new dance every song is a small surprise, one
+   * per frame is a seizure, and one per install is the same two poses forever.
+   * Derived from the revision rather than `Math.random`, so a re-render that
+   * has nothing to do with the music cannot change it mid-song.
+   */
+  const dance = $derived.by(() => {
+    if (pet.dance !== "random") return pet.dance;
+    return DANCES[Math.abs(Math.imul(revision, 2654435761)) % DANCES.length] ?? "bob";
+  });
+
+  // Asleep whenever the music is not. This is the state he is in most of the
+  // time, so it had better not be a frozen sprite.
+  const asleep = $derived(!playing);
+  const active = $derived(awake && playing);
 
   const size = $derived(Math.min(32, Math.max(12, pet.size ?? 20)));
-  const shell = $derived(pet.color || "#d97757");
+
+  /**
+   * `auto` follows the album accent the capsule is already tinted with.
+   *
+   * Everything else in the capsule takes its colour from the artwork, so a
+   * character who ignores it is the one element on screen that does not belong
+   * to the track.
+   */
+  const shell = $derived(
+    !pet.color || pet.color === "auto" ? "var(--accent, #d97757)" : pet.color,
+  );
+
+  function poke() {
+    awake = !awake;
+    poked = true;
+    clearTimeout(pokeTimer);
+    pokeTimer = setTimeout(() => (poked = false), 620);
+  }
+
+  $effect(() => () => clearTimeout(pokeTimer));
 </script>
 
 <button
-  class="clawd-test-overlay {pet.dance ?? 'bob'}"
+  class="clawd-test-overlay {dance}"
   class:dancing={active}
+  class:asleep
+  class:poked
   class:expanded
   type="button"
-  aria-pressed={dancing}
-  aria-label={dancing ? "Clawd is dancing. Click to settle him." : "Clawd is idle. Click to make him dance."}
-  title={dancing ? "Clawd — click to settle" : "Clawd — click to dance"}
+  aria-pressed={awake}
+  aria-label={asleep
+    ? "Clawd is asleep. Click to wake him."
+    : awake
+      ? "Clawd is dancing. Click to settle him."
+      : "Clawd is idle. Click to make him dance."}
+  title={asleep ? "Clawd - asleep" : awake ? "Clawd - click to settle" : "Clawd - click to dance"}
   style:--clawd-size="{size}px"
   style:--clawd-shell={shell}
   onpointerdown={(e) => {
@@ -50,7 +99,7 @@
   }}
   onclick={(e) => {
     e.stopPropagation();
-    dancing = !dancing;
+    poke();
   }}
 >
   <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -106,6 +155,27 @@
       <rect class="ink" x="7" y="10" width="2" height="1" />
       <rect class="ink" x="9" y="9" width="1" height="1" />
     </g>
+
+    <!-- Sleep: three Zs rising, rendered only while he is actually asleep. An
+         element animating behind a dancing crab is wasted work. -->
+    {#if asleep}
+      <g class="zzz" aria-hidden="true">
+        <text x="11" y="3" class="z" style="--d: 0s">z</text>
+        <text x="13" y="1" class="z" style="--d: 0.9s">z</text>
+        <text x="12" y="-1" class="z" style="--d: 1.8s">z</text>
+      </g>
+    {/if}
+
+    <!-- The answer to being poked: a ring and four sparks, once per press. -->
+    {#if poked}
+      <g class="spark" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" class="ring" />
+        <rect class="glass" x="1" y="2" width="1" height="1" />
+        <rect class="glass" x="14" y="3" width="1" height="1" />
+        <rect class="glass" x="2" y="13" width="1" height="1" />
+        <rect class="glass" x="13" y="12" width="1" height="1" />
+      </g>
+    {/if}
 
     {#if pet.hat === "cap"}
       <g class="hat">
@@ -336,9 +406,120 @@
     }
   }
 
-  /* Idle is not frozen: he keeps breathing, so a settled pet still looks alive
-     rather than switched off. */
-  .clawd-test-overlay:not(.dancing) .body {
+  /* --- asleep ---
+     Where he spends most of his life, so it is a state rather than a stop: he
+     sinks, breathes slowly, shuts his eyes, and lets out the occasional z. */
+  .clawd-test-overlay.asleep .body {
+    animation: clawd-sleep 3.4s ease-in-out infinite alternate;
+    animation-play-state: running;
+  }
+  .clawd-test-overlay.asleep .eyes {
+    transform: translateY(1px) scaleY(0.35);
+    transform-origin: bottom center;
+  }
+  .clawd-test-overlay.asleep .claw,
+  .clawd-test-overlay.asleep .legs {
+    animation: none;
+    transform: translateY(1px);
+  }
+
+  @keyframes clawd-sleep {
+    from {
+      transform: translateY(0.5px) scaleY(0.97);
+    }
+    to {
+      transform: translateY(1.5px) scaleY(0.93);
+    }
+  }
+
+  .clawd-test-overlay .z {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 4px;
+    font-weight: 700;
+    fill: color-mix(in srgb, var(--clawd-shell) 40%, white);
+    animation: clawd-z 2.7s linear infinite;
+    animation-delay: var(--d);
+    opacity: 0;
+  }
+
+  @keyframes clawd-z {
+    0% {
+      opacity: 0;
+      transform: translate(0, 2px) scale(0.6);
+    }
+    25% {
+      opacity: 0.9;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(3px, -6px) scale(1.1);
+    }
+  }
+
+  /* --- poked ---
+     One burst on every press, whichever state he was in. The whole point of a
+     pet is that it answers. */
+  .clawd-test-overlay.poked svg {
+    animation: clawd-startle 620ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation-play-state: running;
+  }
+
+  @keyframes clawd-startle {
+    0% {
+      transform: translateY(0) scale(1);
+    }
+    30% {
+      transform: translateY(-3.5px) scale(1.18) rotate(-8deg);
+    }
+    60% {
+      transform: translateY(0) scale(0.94) rotate(4deg);
+    }
+    100% {
+      transform: translateY(0) scale(1) rotate(0);
+    }
+  }
+
+  .clawd-test-overlay .ring {
+    fill: none;
+    stroke: color-mix(in srgb, var(--clawd-shell) 50%, white);
+    stroke-width: 0.6;
+    transform-origin: center;
+    animation: clawd-ring 620ms ease-out both;
+  }
+
+  @keyframes clawd-ring {
+    0% {
+      opacity: 0.9;
+      transform: scale(0.5);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.6);
+    }
+  }
+
+  .clawd-test-overlay .spark rect {
+    transform-origin: center;
+    animation: clawd-spark 620ms ease-out both;
+  }
+
+  @keyframes clawd-spark {
+    0% {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+    40% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.5);
+    }
+  }
+
+  /* Idle-but-awake is not frozen either: he keeps breathing, so a settled pet
+     still looks alive rather than switched off. */
+  .clawd-test-overlay:not(.dancing):not(.asleep) .body {
     animation: clawd-breathe 2.6s ease-in-out infinite alternate;
     animation-play-state: running;
   }

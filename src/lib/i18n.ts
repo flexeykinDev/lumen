@@ -279,6 +279,17 @@ const RU: Record<string, string> = {
   "Crown": "Корона",
   "Headphones": "Наушники",
   "Antenna": "Антенна",
+  "Surprise me": "Удиви меня",
+  "Source on GitHub": "Исходники на GitHub",
+  "Releases": "Релизы",
+  "Checking for updates…": "Проверяем обновления…",
+  "is available": "уже доступна",
+  "Get it": "Скачать",
+  "You have the latest version.": "У вас последняя версия.",
+  "Could not check for updates.": "Не удалось проверить обновления.",
+  "Check again": "Проверить снова",
+  "Check for updates": "Проверять обновления",
+  "One request per launch to a text file in this repository. Nothing is downloaded, and nothing identifies the machine.": "Один запрос за запуск к текстовому файлу в этом репозитории. Ничего не скачивается и ничего не идентифицирует компьютер.",
   restart: "перезапуск",
 };
 

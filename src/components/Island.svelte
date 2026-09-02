@@ -454,7 +454,7 @@
     <!-- Easter egg, opt-in, and entirely self-contained. -->
     {#if showPet && pet}
       <div class="clawd-slot" class:revealing>
-        <Clawd {pet} playing={island.playing && island.visible} />
+        <Clawd {pet} playing={island.playing && island.visible} revision={now?.revision ?? 0} />
       </div>
     {/if}
     <div class="pulse" class:beating={island.playing && island.visible}>
@@ -527,7 +527,7 @@
            was unclickable by construction. -->
       {#if showPet && pet}
         <div class="clawd-slot" class:revealing>
-          <Clawd {pet} playing={island.playing && island.visible} expanded />
+          <Clawd {pet} playing={island.playing && island.visible} revision={now?.revision ?? 0} expanded />
         </div>
       {/if}
       <Volume />

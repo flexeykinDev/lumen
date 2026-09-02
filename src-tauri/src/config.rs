@@ -338,8 +338,11 @@ impl Default for Discord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Dance {
-    /// Bobs on the spot, claws counter-swinging. The default.
+    /// A different one every track. The default, because a pet that does the
+    /// same two poses forever stops being interesting by the third song.
     #[default]
+    Random,
+    /// Bobs on the spot, claws counter-swinging.
     Bob,
     /// Leans side to side, like something keeping time.
     Sway,
@@ -361,6 +364,25 @@ pub enum Hat {
     Antenna,
 }
 
+/// Checking whether a newer build has been published.
+///
+/// On by default, and it is a single request: the version string is a plain
+/// text file in the repository, not an API call, so there is no token, no rate
+/// limit and nothing to identify the machine beyond the fact that a copy of
+/// Lumen exists. It runs once per launch and never downloads anything —
+/// finding the release page is left to the person who wants it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Updates {
+    pub check: bool,
+}
+
+impl Default for Updates {
+    fn default() -> Self {
+        Self { check: true }
+    }
+}
+
 /// Clawd, the pixel pet.
 ///
 /// An easter egg in the proper sense: there is no switch for it until it has
@@ -378,8 +400,11 @@ pub struct Pet {
     /// Height in logical pixels. Bounded by what the capsule row can hold.
     pub size: u32,
     pub dance: Dance,
-    /// Shell colour as `#rrggbb`. The rest of the palette is derived from it,
-    /// so one value is the whole character.
+    /// Shell colour as `#rrggbb`, or `auto` to follow the album art.
+    ///
+    /// `auto` is the default: the capsule already tints itself from the cover,
+    /// and a character who ignores that is the one thing on screen that does
+    /// not belong to the track.
     pub color: String,
     pub hat: Hat,
 }
@@ -390,9 +415,8 @@ impl Default for Pet {
             unlocked: false,
             enabled: false,
             size: 20,
-            dance: Dance::Bob,
-            // Claude's rust, which is whose crab this is.
-            color: "#d97757".into(),
+            dance: Dance::Random,
+            color: "auto".into(),
             hat: Hat::None,
         }
     }
@@ -565,6 +589,7 @@ pub struct Config {
     pub spectrum: SpectrumCfg,
     pub boost: Boost,
     pub pet: Pet,
+    pub updates: Updates,
     /// Whether the first-run tour has been shown.
     ///
     /// Lives in the config rather than in the registry so that a portable copy
@@ -611,6 +636,7 @@ impl Default for Config {
             spectrum: SpectrumCfg::default(),
             boost: Boost::default(),
             pet: Pet::default(),
+            updates: Updates::default(),
             always_expanded: false,
             onboarded: false,
             start_with_windows: false,
@@ -812,7 +838,10 @@ mod tests {
         let pet = Pet::default();
         assert!(!pet.unlocked);
         assert!(!pet.enabled);
-        assert_eq!(pet.dance, Dance::Bob);
+        // A different dance per track is the default: two poses forever is
+        // what made the first version boring by the third song.
+        assert_eq!(pet.dance, Dance::Random);
+        assert_eq!(pet.color, "auto", "he should take the album's colour unless told otherwise");
         assert_eq!(pet.hat, Hat::None);
     }
 

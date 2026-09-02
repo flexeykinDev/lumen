@@ -1,0 +1,64 @@
+# Everything that has to be true before a change lands.
+#
+# Windows-only by necessity, not preference: this codebase is SMTC, WASAPI, UI
+# Automation and DWM from top to bottom, so there is nothing meaningful to check
+# on another runner.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A failed build should say so, not fill the log with a backtrace.
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: tests, clippy, types
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # The Tauri host takes minutes to build from cold; the cache is what makes
+      # this workflow finish in a coffee break rather than a lunch.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install renderer dependencies
+        run: npm ci
+
+      # The Rust side embeds `dist/`, so the frontend has to exist before
+      # anything in `src-tauri` will compile.
+      - name: Build the renderer
+        run: npm run build
+
+      - name: Types
+        run: npm run check
+
+      - name: Motion parity
+        run: npm run check:motion
+
+      - name: Tests
+        working-directory: src-tauri
+        # The ignored ones need real audio playing or a real lock/unlock, so
+        # they are run by hand on a machine with speakers.
+        run: cargo test --all-targets
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings

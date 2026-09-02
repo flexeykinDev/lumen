@@ -25,6 +25,14 @@ export interface RuntimeInfo {
   version: string;
 }
 
+/** What the host found when it asked GitHub for the published version. */
+export interface UpdateStatus {
+  current: string;
+  latest: string | null;
+  newer: boolean;
+  error: string | null;
+}
+
 export type TransportAction = "playPause" | "next" | "previous";
 
 export const host = {
@@ -49,6 +57,10 @@ export const host = {
   /// Quit and start again, for the settings that are only read at startup.
   /// Never resolves — the process is gone before a reply could arrive.
   restart: () => invoke<void>("restart"),
+  /// One request to a text file in the repository. Reports; never updates.
+  checkUpdate: () => invoke<UpdateStatus>("check_update"),
+  /// Opens a link in the default browser. Host-side allow-list.
+  openExternal: (url: string) => invoke<void>("open_external", { url }),
 
   islandOrigin: () => invoke<[number, number]>("island_origin"),
   /// Suspends automatic placement for the duration of the gesture — otherwise a

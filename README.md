@@ -6,6 +6,16 @@ do with it.
 
 [Русская версия](README.ru.md) · [Architecture](ARCHITECTURE.md) · [Download](../../releases/latest)
 
+<p>
+  <a href="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/flexeykinDev/lumen/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/flexeykinDev/lumen?color=7a8cff&label=release" /></a>
+  <img alt="Tests" src="https://img.shields.io/badge/tests-152%20passing-5ad19b" />
+  <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-5ad19b" />
+  <img alt="Size" src="https://img.shields.io/badge/exe-4.3%20MB-c8cee0" />
+  <img alt="Platform" src="https://img.shields.io/badge/Windows-10%201809%2B-0078d4" />
+  <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-MIT-c8cee0" /></a>
+</p>
+
 ![Lumen](docs/preview.svg)
 
 ## Features
@@ -31,8 +41,12 @@ do with it.
 - **Share card.** 1200×600 PNG of the current track, straight to the clipboard.
 - **Settings window** in English and Russian, with a first-run tour.
 - **An easter egg.** There is a hidden pixel character. No switch reveals him —
-  the settings for him do not exist until you have found him. Once he is out, he
-  is fully customisable: dance, size, colour, accessory.
+  the settings for him do not exist until you have found him. Once he is out: a
+  different dance every track, a size, a colour that follows the album art by
+  default, accessories, a reaction when you poke him, and he sleeps when the
+  music stops.
+- **Update check.** One request per launch to a text file in this repository.
+  It reports; it never downloads or replaces anything.
 - **Portable.** One 4.3 MB exe, one JSON file beside it. No installer, no
   registry beyond an optional autostart entry.
 
@@ -148,6 +162,7 @@ below is also in the settings window.
 | `smartPause.enabled`, `smartPause.resumeOnUnlock` | bool | |
 | `spectrum.enabled` | bool | |
 | `pet.*` | — | Written by the easter egg. Nothing to set by hand |
+| `updates.check` | bool | Ask GitHub whether a newer release exists, once per launch |
 | `startWithWindows` | bool | Mirrored into `HKCU\…\Run`, reconciled every launch |
 
 ### Hotkeys

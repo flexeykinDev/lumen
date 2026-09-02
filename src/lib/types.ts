@@ -99,8 +99,8 @@ export interface PetConfig {
   enabled: boolean;
   /** Height in logical px, 12–32. */
   size: number;
-  dance: "bob" | "sway" | "hop" | "spin";
-  /** `#rrggbb`; every other tone is derived from it. */
+  dance: "random" | "bob" | "sway" | "hop" | "spin";
+  /** `#rrggbb`, or `auto` to follow the album accent. Other tones derive from it. */
   color: string;
   hat: "none" | "cap" | "crown" | "headphones" | "antenna";
 }
@@ -167,6 +167,8 @@ export interface AppConfig {
     /** An extra shift for guessed timings only. */
     estimatedOffsetMs: number;
   };
+  /** One request per launch to a text file in the repository. */
+  updates: { check: boolean };
   /** The live spectrum. The only feature here that costs CPU while it runs. */
   spectrum: { enabled: boolean };
   /** Hold the panel open instead of collapsing back to the pill. */

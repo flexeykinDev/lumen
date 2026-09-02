@@ -21,6 +21,7 @@ pub mod presence;
 pub mod share;
 pub mod smart_pause;
 pub mod spectrum;
+pub mod update;
 pub mod single_instance;
 pub mod util;
 pub mod window;
@@ -94,6 +95,8 @@ pub fn run() {
             ipc::set_config,
             ipc::open_settings,
             ipc::restart,
+            ipc::check_update,
+            ipc::open_external,
             ipc::seek,
             ipc::island_origin,
             ipc::drag_start,

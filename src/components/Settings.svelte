@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { host } from "../lib/bridge";
+  import { host, type UpdateStatus } from "../lib/bridge";
   import { currentLanguage, setLanguage, t } from "../lib/i18n";
   import type { AppConfig, PresenceButton } from "../lib/types";
   import Welcome from "./Welcome.svelte";
@@ -72,6 +72,8 @@
   let info = $state<{ configPath: string | null; portable: boolean; version: string } | null>(null);
   let liveSources = $state<string[]>([]);
   let saved = $state(false);
+  let update = $state<UpdateStatus | null>(null);
+  let checking = $state(false);
   let savedTimer: ReturnType<typeof setTimeout> | undefined;
 
   /**
@@ -89,6 +91,24 @@
     return t(text);
   };
 
+  /**
+   * Ask the host whether a newer build exists.
+   *
+   * Reports the answer and stops there. Nothing is downloaded, so the worst a
+   * failed check can do is show one line saying it failed.
+   */
+  async function checkForUpdate() {
+    checking = true;
+    try {
+      update = await host.checkUpdate();
+    } catch (e) {
+      update = null;
+      console.debug("update check refused", e);
+    } finally {
+      checking = false;
+    }
+  }
+
   onMount(async () => {
     cfg = await host.getConfig();
     applyLanguage(cfg.language);
@@ -100,6 +120,8 @@
     } catch {
       liveSources = [];
     }
+    // Once per opening of this window, and only if it is switched on.
+    if (cfg.updates.check) void checkForUpdate();
   });
 
   /**
@@ -460,6 +482,7 @@
                 onchange={(e) =>
                   patch((c) => (c.pet.dance = e.currentTarget.value as AppConfig["pet"]["dance"]))}
               >
+                <option value="random">{tr("Surprise me")}</option>
                 <option value="bob">{tr("Bob")}</option>
                 <option value="sway">{tr("Sway")}</option>
                 <option value="hop">{tr("Hop")}</option>
@@ -485,6 +508,18 @@
 
             <Row label="Colour" description="The shell. Every other tone is mixed from it, so one colour is the whole character.">
               <div class="swatches">
+                <!-- First, and the default: the capsule is already tinted from
+                     the artwork, so a pet that ignores it is the one thing on
+                     screen that does not belong to the track. -->
+                <button
+                  type="button"
+                  class="auto-swatch"
+                  class:on={cfg.pet.color === "auto"}
+                  disabled={!cfg.pet.enabled}
+                  onclick={() => patch((c) => (c.pet.color = "auto"))}
+                >
+                  {tr("Auto")}
+                </button>
                 {#each PET_COLOURS as swatch (swatch)}
                   <button
                     type="button"
@@ -1075,6 +1110,66 @@
             </dl>
           {/if}
           <p class="note">{tr("about.note")}</p>
+
+          <!-- Where this came from, and whether it is still current. -->
+          <div class="links">
+            <button
+              type="button"
+              class="link primary"
+              onclick={() => host.openExternal("https://github.com/flexeykinDev/lumen")}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M8 0a8 8 0 00-2.5 15.6c.4.1.5-.2.5-.4v-1.4c-2.2.5-2.7-1-2.7-1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-3.9 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.6 7.6 0 014 0c1.5-1 2.2-.8 2.2-.8.5 1.1.2 1.9.1 2.1.5.5.8 1.2.8 2.1 0 3-1.8 3.7-3.6 3.9.3.3.5.8.5 1.5v2.2c0 .2.1.5.6.4A8 8 0 008 0z"
+                />
+              </svg>
+              {tr("Source on GitHub")}
+            </button>
+            <button
+              type="button"
+              class="link"
+              onclick={() => host.openExternal("https://github.com/flexeykinDev/lumen/releases/latest")}
+            >
+              {tr("Releases")}
+            </button>
+          </div>
+
+          <div class="update" class:available={update?.newer}>
+            {#if checking}
+              <span class="dim">{tr("Checking for updates…")}</span>
+            {:else if update?.newer && update.latest}
+              <strong>{tr("Version")} {update.latest} {tr("is available")}</strong>
+              <button
+                type="button"
+                class="link primary"
+                onclick={() => host.openExternal("https://github.com/flexeykinDev/lumen/releases/latest")}
+              >
+                {tr("Get it")}
+              </button>
+            {:else if update?.latest}
+              <span class="dim">{tr("You have the latest version.")}</span>
+            {:else if update?.error}
+              <span class="dim">{tr("Could not check for updates.")}</span>
+            {/if}
+            {#if !checking}
+              <button type="button" class="link small" onclick={checkForUpdate}>
+                {tr("Check again")}
+              </button>
+            {/if}
+          </div>
+
+          <section class="quiet">
+            <Row
+              label="Check for updates"
+              description="One request per launch to a text file in this repository. Nothing is downloaded, and nothing identifies the machine."
+            >
+              <Toggle
+                checked={cfg.updates.check}
+                label="Check for updates"
+                onchange={(v) => patch((c) => (c.updates.check = v))}
+              />
+            </Row>
+          </section>
           <p class="note">
             Nothing leaves this machine unless you switch it on: lyrics and Discord cover art are
             the only features that use the network, and each says so where it is enabled.
@@ -1439,6 +1534,93 @@
   .pair {
     display: flex;
     gap: 8px;
+  }
+
+  .links {
+    display: flex;
+    gap: 8px;
+    margin: 20px 0 14px;
+  }
+
+  .link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    transition:
+      background 140ms var(--ease),
+      color 140ms var(--ease);
+  }
+
+  .link:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .link.primary:hover {
+    background: color-mix(in srgb, var(--settings-accent) 30%, transparent);
+  }
+
+  .link.small {
+    height: 26px;
+    padding: 0 10px;
+    font-size: 11.5px;
+  }
+
+  .link svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+  }
+
+  .update {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 34px;
+    font-size: 12.5px;
+    margin-bottom: 18px;
+  }
+
+  .update.available strong {
+    color: var(--ok);
+  }
+
+  .update .dim {
+    color: var(--ink-faint);
+  }
+
+  .quiet {
+    margin-top: 4px;
+  }
+
+  .auto-swatch {
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+  }
+
+  .auto-swatch.on {
+    color: #fff;
+    background: color-mix(in srgb, var(--settings-accent) 28%, transparent);
+    box-shadow: inset 0 0 0 1px var(--settings-accent);
+  }
+
+  .auto-swatch:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .swatches {

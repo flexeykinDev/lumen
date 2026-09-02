@@ -345,6 +345,48 @@ pub fn open_settings(ctx: State<'_, Ctx>) {
     let _ = ctx.app.run_on_main_thread(move || crate::open_settings(&app));
 }
 
+/// Ask GitHub whether a newer Lumen has been published.
+///
+/// Called by the settings window, and only when the setting allows it. Returns
+/// the answer rather than acting on it: this reports, it does not update.
+#[tauri::command]
+pub async fn check_update(ctx: State<'_, Ctx>) -> Result<crate::update::Status, String> {
+    if !ctx.cfg.get().updates.check {
+        return Err("update checks are switched off".into());
+    }
+    // WinHTTP blocks, and this is called from the settings window's event loop.
+    tauri::async_runtime::spawn_blocking(crate::update::check)
+        .await
+        .map_err(|e| format!("the update check did not finish: {e}"))
+}
+
+/// Open a link in the default browser.
+///
+/// Restricted to an allow-list. The renderer is ours, but "open whatever URL
+/// this string says" is the kind of command that turns any content injection
+/// into a way of launching things, and there are exactly four places Lumen ever
+/// needs to send someone.
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    const ALLOWED: [&str; 4] = [
+        "https://github.com/flexeykinDev",
+        "https://discord.com/developers",
+        "https://lrclib.net",
+        "https://genius.com",
+    ];
+
+    if !ALLOWED.iter().any(|prefix| url.starts_with(prefix)) {
+        return Err(format!("refusing to open {url}"));
+    }
+    // `start` needs an empty title argument first, or a quoted URL becomes the
+    // window title and nothing opens.
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &url])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Quit and start again.
 ///
 /// Several settings are read once, at startup — the mouse hook, the hotkeys,

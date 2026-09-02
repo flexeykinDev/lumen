@@ -6,6 +6,16 @@
 
 [English version](README.md) · [Архитектура](ARCHITECTURE.md) · [Скачать](../../releases/latest)
 
+<p>
+  <a href="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/flexeykinDev/lumen/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/flexeykinDev/lumen?color=7a8cff&label=release" /></a>
+  <img alt="Tests" src="https://img.shields.io/badge/tests-152%20passing-5ad19b" />
+  <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-5ad19b" />
+  <img alt="Size" src="https://img.shields.io/badge/exe-4.3%20MB-c8cee0" />
+  <img alt="Platform" src="https://img.shields.io/badge/Windows-10%201809%2B-0078d4" />
+  <a href="LICENSE"><img alt="Licence" src="https://img.shields.io/badge/licence-MIT-c8cee0" /></a>
+</p>
+
 ![Lumen](docs/preview.svg)
 
 ## Возможности
@@ -34,8 +44,11 @@
 - **Карточка трека.** PNG 1200×600 с текущим треком сразу в буфер обмена.
 - **Окно настроек** на русском и английском, с обучением при первом запуске.
 - **Пасхалка.** В приложении спрятан пиксельный персонаж. Никакой переключатель
-  его не покажет: настройки для него не существуют, пока вы его не найдёте.
-  А когда найдёте — танец, размер, цвет и аксессуар настраиваются.
+  его не покажет: настройки для него не существуют, пока вы его не найдёте. А
+  когда найдёте — новый танец на каждый трек, размер, цвет (по умолчанию берётся
+  от обложки), аксессуары, реакция на тычок и сон, когда музыка молчит.
+- **Проверка обновлений.** Один запрос за запуск к текстовому файлу в этом
+  репозитории. Только сообщает — ничего не скачивает и не подменяет.
 - **Портативность.** Один exe на 4,3 МБ и один JSON рядом с ним. Без
   установщика и без реестра, кроме необязательной записи автозапуска.
 
@@ -150,6 +163,7 @@ Alt + средний клик.
 | `smartPause.enabled`, `smartPause.resumeOnUnlock` | bool | |
 | `spectrum.enabled` | bool | |
 | `pet.*` | — | Пишется пасхалкой. Руками задавать нечего |
+| `updates.check` | bool | Раз за запуск спрашивает GitHub, есть ли новая версия |
 | `startWithWindows` | bool | Дублируется в `HKCU\…\Run` и сверяется при каждом запуске |
 
 ### Горячие клавиши

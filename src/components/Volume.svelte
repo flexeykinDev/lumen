@@ -148,6 +148,11 @@
 </div>
 
 <style>
+  /* Elastic, and the only elastic thing in the tray row.
+     Everything either side of it — transport, the pet, the source badge — is a
+     fixed size, so when the row runs out of width this is what has to give.
+     Without `flex: 1 1 auto` and a shrinkable track the group kept its full
+     width, the row overflowed, and the bar ran underneath the source badge. */
   .volume {
     position: relative;
     display: flex;
@@ -155,6 +160,7 @@
     gap: 7px;
     /* Breathing room from the source badge on the right. */
     padding: 2px 4px 2px 2px;
+    flex: 1 1 auto;
     min-width: 0;
   }
 
@@ -212,12 +218,17 @@
     border: 0;
     background: none;
     cursor: help;
-    flex: none;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .track {
     position: relative;
-    width: 50px;
+    width: 100%;
+    /* Never wider than it needs to be, never so narrow it stops reading as a
+       level: the range the row is allowed to squeeze it into. */
+    max-width: 50px;
+    min-width: 22px;
     height: 3px;
     border-radius: 999px;
     background: rgba(0, 0, 0, 0.28);
