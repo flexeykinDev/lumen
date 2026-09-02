@@ -35,6 +35,9 @@ pub const EVT_SHARE_REQUEST: &str = "lumen://share-request";
 /// the current line from the clock it already interpolates, so playback itself
 /// costs no IPC.
 pub const EVT_LYRICS: &str = "lumen://lyrics";
+/// Spectrum bands, ~20 times a second, and only while the bars are on screen.
+/// The one event in Lumen that fires during steady playback — see spectrum.
+pub const EVT_SPECTRUM: &str = "lumen://spectrum";
 
 /// Everything the renderer needs once, at boot.
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +62,9 @@ pub struct Ctx {
     pub volume: Option<Arc<VolumeControl>>,
     pub app: AppHandle,
     pub info: RuntimeInfo,
+    /// The audio capture, alive only while the bars are on screen. `None` the
+    /// rest of the time — the thread does not exist and the endpoint is closed.
+    pub spectrum: std::sync::Mutex<Option<crate::spectrum::Spectrum>>,
 }
 
 #[tauri::command]
@@ -284,6 +290,37 @@ pub fn share_card(ctx: State<'_, Ctx>, png: Vec<u8>) -> Result<SavedCard, String
     // path is logged, and the folder is documented.
     tracing::info!("share card saved to {}", path.display());
     Ok(SavedCard { path: path.display().to_string(), copied })
+}
+
+/// Turn the audio capture on or off.
+///
+/// Driven from the renderer because it is the only side that knows precisely
+/// when the bars are on screen — the capture exists solely to feed them, and
+/// running it a moment longer than that is pure waste. The host stops it too
+/// whenever media vanishes, so a stalled WebView cannot leave it running.
+#[tauri::command]
+pub fn spectrum_enable(ctx: State<'_, Ctx>, on: bool) {
+    let mut guard = match ctx.spectrum.lock() {
+        Ok(g) => g,
+        Err(e) => e.into_inner(),
+    };
+
+    if !on {
+        // Dropping it stops the thread and releases the endpoint.
+        if guard.take().is_some() {
+            tracing::debug!("spectrum: capture stopped");
+        }
+        return;
+    }
+    if guard.is_some() || !ctx.cfg.get().spectrum.enabled {
+        return;
+    }
+
+    let emitter = ctx.app.clone();
+    tracing::debug!("spectrum: capture started");
+    *guard = Some(crate::spectrum::Spectrum::start(move |bands| {
+        let _ = emitter.emit(EVT_SPECTRUM, bands);
+    }));
 }
 
 #[tauri::command]

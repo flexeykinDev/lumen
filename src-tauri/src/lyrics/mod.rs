@@ -33,6 +33,7 @@ use crate::media::NowPlaying;
 pub mod genius;
 mod http;
 mod lrc;
+pub mod source;
 pub mod timing;
 
 pub use lrc::{Line, parse};
@@ -72,7 +73,7 @@ pub struct LyricsService {
 impl LyricsService {
     /// Start the fetcher. `on_lyrics` is called on the worker thread whenever a
     /// track's lyrics arrive.
-    pub fn start(allow_fallback: bool, on_lyrics: impl Fn(Lyrics) + Send + 'static) -> Self {
+    pub fn start(allow_fallback: bool, offset_sec: f64, on_lyrics: impl Fn(Lyrics) + Send + 'static) -> Self {
         let (tx, rx) = mpsc::channel::<Cmd>();
 
         let _ = std::thread::Builder::new().name("lumen-lyrics".into()).spawn(move || {
@@ -93,7 +94,7 @@ impl LyricsService {
                 }
                 last = Some(key);
 
-                match fetch(&np, allow_fallback) {
+                match fetch(&np, allow_fallback, offset_sec) {
                     Ok(Some(lyrics)) => on_lyrics(lyrics),
                     Ok(None) => {
                         tracing::debug!("no lyrics for {} - {}", np.artist, np.title);
@@ -120,6 +121,14 @@ impl LyricsService {
         if np.title.trim().is_empty() {
             return;
         }
+        // Looking up a gameplay video or an interview does not fail politely:
+        // the databases match on artist and title, so they return *some* song
+        // and its words scroll confidently over unrelated audio. See
+        // `source::is_song`.
+        if !source::is_song(np) {
+            tracing::debug!("not a song, skipping lyrics: {} - {}", np.artist, np.title);
+            return;
+        }
         let _ = self.tx.send(Cmd::Fetch(Box::new(np.clone())));
     }
 }
@@ -140,7 +149,7 @@ impl Drop for LyricsService {
 ///
 /// Anything guessed is marked `estimated`, so the interface never presents step
 /// 2 or 3 with the confidence of step 1.
-fn fetch(np: &NowPlaying, allow_fallback: bool) -> anyhow::Result<Option<Lyrics>> {
+fn fetch(np: &NowPlaying, allow_fallback: bool, offset_sec: f64) -> anyhow::Result<Option<Lyrics>> {
     let duration = np.timeline.duration_sec;
     let build = |lines: Vec<Line>, estimated: bool| Lyrics {
         session_id: np.session_id.clone(),
@@ -171,7 +180,7 @@ fn fetch(np: &NowPlaying, allow_fallback: bool) -> anyhow::Result<Option<Lyrics>
             return Ok(Some(build(timed, false)));
         }
         if !plain.trim().is_empty() {
-            let spread = timing::distribute(plain, duration);
+            let spread = timing::distribute(plain, duration, offset_sec);
             if !spread.is_empty() {
                 tracing::info!("lyrics: {} estimated line(s) from lrclib plain", spread.len());
                 return Ok(Some(build(spread, true)));
@@ -203,7 +212,7 @@ fn fetch(np: &NowPlaying, allow_fallback: bool) -> anyhow::Result<Option<Lyrics>
         return Ok(None);
     };
 
-    let spread = timing::distribute(&text, duration);
+    let spread = timing::distribute(&text, duration, offset_sec);
     if spread.is_empty() {
         return Ok(None);
     }

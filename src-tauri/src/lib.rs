@@ -17,6 +17,7 @@ pub mod policy;
 pub mod presence;
 pub mod share;
 pub mod smart_pause;
+pub mod spectrum;
 pub mod single_instance;
 pub mod util;
 pub mod window;
@@ -96,6 +97,7 @@ pub fn run() {
             ipc::volume_set,
             ipc::volume_toggle_mute,
             ipc::share_card,
+            ipc::spectrum_enable,
         ])
         .setup({
             let cfg = Arc::clone(&cfg);
@@ -162,6 +164,7 @@ pub fn run() {
                     volume,
                     app: handle.clone(),
                     info,
+                    spectrum: std::sync::Mutex::new(None),
                 });
 
                 // Presence is published *as* a Discord application, so without an
@@ -211,7 +214,10 @@ pub fn run() {
                 let lyrics_conf = cfg.get().lyrics;
                 let lyrics = if lyrics_conf.enabled {
                     let emitter = handle.clone();
-                    Some(Arc::new(lyrics::LyricsService::start(lyrics_conf.genius_fallback, move |l| {
+                    Some(Arc::new(lyrics::LyricsService::start(
+                        lyrics_conf.genius_fallback,
+                        lyrics_conf.estimated_offset_ms as f64 / 1000.0,
+                        move |l| {
                         let _ = emitter.emit(ipc::EVT_LYRICS, &l);
                     })))
                 } else {

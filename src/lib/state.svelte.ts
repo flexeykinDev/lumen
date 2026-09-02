@@ -45,6 +45,14 @@ class Island {
   /// True when the timings were estimated rather than read from a .lrc.
   lyricsEstimated = $state(false);
 
+  /**
+   * Spectrum bands, 0..1, or empty when the capture is off.
+   *
+   * The one thing here that updates during steady playback, which is why the
+   * capture behind it is gated so tightly — see Island.svelte.
+   */
+  spectrum = $state<number[]>([]);
+
   /** Only worth offering a switcher when there is somewhere to switch to. */
   canSwitch = $derived(this.sessions.length > 1);
 
@@ -200,6 +208,9 @@ class Island {
       }),
       on.placement((v) => {
         this.mirrored = v.mirrored;
+      }),
+      on.spectrum((v) => {
+        this.spectrum = v;
       }),
       on.lyrics((v) => {
         // A slow lookup can land after the user has already skipped on. Showing

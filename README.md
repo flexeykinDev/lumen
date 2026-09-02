@@ -86,6 +86,31 @@ directory is read-only; the tray tooltip tells you which one is in use.
 | `mouse.taskbarWheelOverFullscreen` | bool | Keeps the wheel working where the bar would be when a game covers it, targeting the covering app |
 | `mouse.taskbarCloseButton` | `middle` \| `right` \| `none` | Which button closes the app under a taskbar button. `right` replaces the jump list |
 
+### Spectrum
+
+Sixteen log-spaced bands behind the expanded panel, from a WASAPI loopback
+capture of whatever is playing. `"spectrum": { "enabled": true }`.
+
+This is the **only** feature here that costs CPU while it runs, so it is gated
+to expanded **and** playing — when the bars are not on screen the capture thread
+does not exist and the audio endpoint is closed. Measured on this machine:
+
+| state | cost |
+|---|---|
+| not visible | **0.000%** — no thread, no device |
+| visible and playing | **0.043% of the machine** (0.52% of one core), 19.7 frames/s |
+
+Re-measure after any change to it:
+
+```bash
+cargo test -- --ignored --nocapture spectrum_cost
+```
+
+Loopback on the render endpoint, so it hears the mix you hear and needs no
+microphone permission. The FFT is hand-written — 1024 points twenty times a
+second is microseconds of work, and `rustfft` would cost more in binary size
+than it saves in time.
+
 ### Lyrics
 
 Time-synced lyrics from [LRCLIB](https://lrclib.net). The current line replaces
@@ -104,8 +129,16 @@ listening, and that is your call to make, not a default to inherit.
 The active line sweeps left to right as it is sung.
 
 ```json
-"lyrics": { "enabled": true, "geniusFallback": true }
+"lyrics": { "enabled": true, "geniusFallback": true, "estimatedOffsetMs": 0 }
 ```
+
+**Only songs are looked up.** A lyrics database matches on artist and title, so
+asking it about a gameplay video or a ninety-minute interview does not politely
+fail — it returns *someone's* song and scrolls those words over unrelated audio.
+Dedicated music players (Spotify, Yandex Music, YouTube Music, foobar2000…) are
+trusted outright; a browser has to look like music first, judged on duration and
+on title keywords in both English and Russian. A missed lyric is a shrug; a
+confident lyric over the wrong audio looks broken.
 
 **Three sources, each worse than the last:**
 
@@ -115,11 +148,13 @@ The active line sweeps left to right as it is sung.
 | LRCLIB plain text | **guessed** | italic, dimmer |
 | Genius page | **guessed** | italic, dimmer |
 
-Guessed timings come from spreading the lines evenly across the track, skipping
-a little intro and outro. On real music this drifts — verses are dense, choruses
-repeat, instrumental breaks are silent — so estimated lyrics are styled
-differently rather than presented with the confidence of a measurement. An
-estimate that looks exactly like a fact is the failure worth avoiding.
+Guessed timings spread the lines across the track in proportion to their length,
+skipping a little intro and outro. They still drift: a lyrics page writes a
+chorus once where it is sung three times, so the line count rarely matches what
+is actually performed. That is why estimated lyrics are styled differently
+rather than presented with the confidence of a measurement — and why
+`estimatedOffsetMs` exists. If they consistently run late, try `-1500`; it
+shifts guessed timings only and never touches a real `.lrc`.
 
 **`geniusFallback` is a scraper, not an API.** Genius has no lyrics endpoint and
 their terms prohibit serving lyrics through the API, so this reads their web

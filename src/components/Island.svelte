@@ -37,6 +37,29 @@
   //     moment the next line begins.
   //
   // So one wakeup per lyric line, rather than five per second.
+  // The spectrum gate.
+  //
+  // This is the one part of Lumen that costs CPU while it runs — it captures
+  // audio and transforms it twenty times a second. So the capture exists only
+  // while the bars are actually on screen: expanded, playing, and switched on.
+  // Collapsed, hidden or paused, the thread does not exist and the audio
+  // endpoint is closed.
+  //
+  // Driven from here rather than the host because this is the only side that
+  // knows what is visible.
+  const spectrumWanted = $derived(
+    island.expanded && island.playing && (island.config?.spectrum?.enabled ?? true),
+  );
+  $effect(() => {
+    const on = spectrumWanted;
+    host.spectrumEnable(on).catch(() => {});
+    // Stopping on teardown as well: a reload must not leave a capture running
+    // with nothing listening to it.
+    return () => {
+      if (on) host.spectrumEnable(false).catch(() => {});
+    };
+  });
+
   let lyricEpoch = $state(0);
   const lyric = $derived.by(() => {
     // `lyricEpoch` is read so the derivation re-runs when the boundary fires.
@@ -313,6 +336,16 @@
   <div class="veil" aria-hidden="true"></div>
   <div class="tint" aria-hidden="true"></div>
 
+  <!-- Behind the content and out of the layout: the bars are atmosphere, not a
+       control, and must never push the panel around. -->
+  {#if spectrumWanted && island.spectrum.length > 0}
+    <div class="spectrum" aria-hidden="true">
+      {#each island.spectrum as level, i (i)}
+        <i style:transform="scaleY({Math.max(0.03, level)})"></i>
+      {/each}
+    </div>
+  {/if}
+
   <div class="art-slot" style:transform={artTransform}>
     <AlbumArt src={now?.artDataUri ?? null} revision={now?.revision ?? 0} accent={accent.base} />
   </div>
@@ -490,6 +523,45 @@
     transform-origin: bottom left;
     /* transform only — this is the one thing that must never drop a frame. */
     transition: transform var(--dur) var(--ease);
+    will-change: transform;
+  }
+
+  /* --- live spectrum ---
+     Sits behind everything, anchored to the bottom edge, and takes no part in
+     layout. Low contrast on purpose: this is the room the music is playing in,
+     not something to read. */
+  .spectrum {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 34px;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 0 10px;
+    opacity: 0.5;
+    pointer-events: none;
+    /* Fades out toward the top so the bars dissolve into the glass rather than
+       ending on a hard line across the capsule. */
+    mask-image: linear-gradient(180deg, transparent, #000 70%);
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 70%);
+  }
+
+  .spectrum i {
+    flex: 1;
+    height: 100%;
+    transform-origin: bottom;
+    border-radius: 2px 2px 0 0;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 70%, white) 0%,
+      var(--accent) 100%
+    );
+    /* Bands arrive 20 times a second; the transition carries each bar between
+       them so the movement reads as continuous at whatever frame rate the
+       compositor is running. transform only, so it never touches layout. */
+    transition: transform 60ms linear;
     will-change: transform;
   }
 

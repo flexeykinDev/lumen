@@ -69,6 +69,8 @@ export interface AppConfig {
   showWhilePaused: boolean;
   /** Scalar units moved per wheel notch; 0.02 = 2%. */
   volumeStep: number;
+  /** The live spectrum. The only feature here that costs CPU while it runs. */
+  spectrum?: { enabled: boolean };
   hotkeys: { playPause: string; next: string; previous: string };
 }
 
@@ -130,4 +132,5 @@ export const EVT = {
   placement: "lumen://placement",
   shareRequest: "lumen://share-request",
   lyrics: "lumen://lyrics",
+  spectrum: "lumen://spectrum",
 } as const;

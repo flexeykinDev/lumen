@@ -215,11 +215,35 @@ pub struct Lyrics {
     /// has no lyrics API, so this reads their web page and will break whenever
     /// that page changes. The timings it produces are guesses.
     pub genius_fallback: bool,
+    /// Shift every estimated line by this many milliseconds.
+    ///
+    /// Only affects guessed timings, never a real .lrc. Estimated lines drift
+    /// by their nature — the line count from a lyrics page rarely matches what
+    /// is actually sung — so a nudge is the only honest correction available.
+    /// Negative shows them earlier.
+    pub estimated_offset_ms: i64,
 }
 
 impl Default for Lyrics {
     fn default() -> Self {
-        Self { enabled: false, genius_fallback: true }
+        Self { enabled: false, genius_fallback: true, estimated_offset_ms: 0 }
+    }
+}
+
+/// The live spectrum behind the expanded panel.
+///
+/// Unlike everything else here, this one costs CPU while it runs: it captures
+/// audio and transforms it twenty times a second. It is therefore gated to
+/// expanded *and* playing, and this switch turns it off outright.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SpectrumCfg {
+    pub enabled: bool,
+}
+
+impl Default for SpectrumCfg {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -279,6 +303,7 @@ pub struct Config {
     pub discord: Discord,
     pub smart_pause: SmartPause,
     pub lyrics: Lyrics,
+    pub spectrum: SpectrumCfg,
 }
 
 impl Default for Config {
@@ -303,6 +328,7 @@ impl Default for Config {
             discord: Discord::default(),
             smart_pause: SmartPause::default(),
             lyrics: Lyrics::default(),
+            spectrum: SpectrumCfg::default(),
         }
     }
 }

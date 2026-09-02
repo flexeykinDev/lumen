@@ -79,6 +79,9 @@ export const host = {
   volumeSet: (scalar: number) => invoke<void>("volume_set", { scalar }),
   volumeToggleMute: () => invoke<void>("volume_toggle_mute"),
   /// Hands a canvas-rendered PNG to the host, which writes it and copies it.
+  /// Starts and stops the audio capture. Called only from the effect that
+  /// knows the bars are on screen — see Island.svelte.
+  spectrumEnable: (on: boolean) => invoke<void>("spectrum_enable", { on }),
   shareCard: (png: number[]) => invoke<{ path: string; copied: boolean }>("share_card", { png }),
 };
 
@@ -99,6 +102,8 @@ export const on = {
     listen<SessionSummary[]>(EVT.sessions, (e) => fn(e.payload)),
   placement: (fn: (v: PlacementEvent) => void): Promise<UnlistenFn> =>
     listen<PlacementEvent>(EVT.placement, (e) => fn(e.payload)),
+  spectrum: (fn: (v: number[]) => void): Promise<UnlistenFn> =>
+    listen<number[]>(EVT.spectrum, (e) => fn(e.payload)),
   lyrics: (fn: (v: LyricsEvent) => void): Promise<UnlistenFn> =>
     listen<LyricsEvent>(EVT.lyrics, (e) => fn(e.payload)),
   /// The tray asking for a share card. Only this side can draw one.
