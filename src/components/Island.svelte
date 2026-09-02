@@ -126,6 +126,41 @@
     }
   });
 
+  // The easter egg.
+  //
+  // Seven clicks on the album art, within three seconds of each other. Seven
+  // because three is an accident and twenty is a chore, and the window resets so
+  // an ordinary double-click over a long session never accumulates into a
+  // surprise. Nothing hints at it, which is the point: a secret advertised in a
+  // settings list was never a secret.
+  const UNLOCK_CLICKS = 7;
+  const UNLOCK_WINDOW_MS = 3000;
+
+  let taps = 0;
+  let lastTap = 0;
+  /** Set for one animation frame when he is first revealed. */
+  let revealing = $state(false);
+
+  function tapArt() {
+    const cfg = island.config;
+    if (!cfg || cfg.pet?.unlocked) return;
+
+    const now = performance.now();
+    taps = now - lastTap > UNLOCK_WINDOW_MS ? 1 : taps + 1;
+    lastTap = now;
+    if (taps < UNLOCK_CLICKS) return;
+
+    taps = 0;
+    revealing = true;
+    setTimeout(() => (revealing = false), 1400);
+    host
+      .setConfig({ ...cfg, pet: { ...cfg.pet, unlocked: true, enabled: true } })
+      .catch(() => {});
+  }
+
+  const pet = $derived(island.config?.pet);
+  const showPet = $derived(Boolean(pet?.unlocked && pet?.enabled));
+
   // One element that scales between the two layouts rather than two elements
   // crossfading, so the cover physically travels between states.
   //
@@ -392,7 +427,15 @@
     </div>
   {/if}
 
-  <div class="art-slot" style:transform={artTransform}>
+  <!-- The album art doubles as the way in to the easter egg. It stays a plain
+       div: it is not a control, and giving it button semantics would announce
+       a secret to every screen reader that met it. -->
+  <div
+    class="art-slot"
+    style:transform={artTransform}
+    onclickcapture={tapArt}
+    role="presentation"
+  >
     <AlbumArt src={now?.artDataUri ?? null} revision={now?.revision ?? 0} accent={accent.base} />
   </div>
 
@@ -408,10 +451,11 @@
       text={title}
       active={island.state === "collapsed" && island.playing && !showVolume}
     />
-    <!-- Easter egg, opt-in, and entirely self-contained: one component, one
-         config flag, no styles shared with anything here. -->
-    {#if island.config?.pet?.enabled}
-      <Clawd playing={island.playing && island.visible} />
+    <!-- Easter egg, opt-in, and entirely self-contained. -->
+    {#if showPet && pet}
+      <div class="clawd-slot" class:revealing>
+        <Clawd {pet} playing={island.playing && island.visible} />
+      </div>
     {/if}
     <div class="pulse" class:beating={island.playing && island.visible}>
       <i></i><i></i><i></i><i></i>
@@ -478,6 +522,14 @@
 
     <div class="tray">
       <Controls />
+      <!-- The same pet, in the layer the pointer is actually over. Hovering the
+           capsule expands it, so a Clawd that only existed in the collapsed row
+           was unclickable by construction. -->
+      {#if showPet && pet}
+        <div class="clawd-slot" class:revealing>
+          <Clawd {pet} playing={island.playing && island.visible} expanded />
+        </div>
+      {/if}
       <Volume />
       {#if now?.source}
         {#if island.canSwitch}
@@ -683,6 +735,41 @@
        other rather than cross-dissolving in place. */
     transform: translateY(-8px);
     pointer-events: none;
+  }
+
+  /* Wrapper for the pet. Holds the reveal effect, so the component itself stays
+     ignorant of where it is mounted. */
+  .clawd-slot {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+
+  /* One burst, the first time he is ever shown. */
+  .clawd-slot.revealing::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.55), transparent 65%);
+    animation: clawd-pop 900ms var(--ease) both;
+    pointer-events: none;
+  }
+
+  @keyframes clawd-pop {
+    0% {
+      opacity: 0;
+      transform: scale(0.3);
+    }
+    35% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.6);
+    }
   }
 
   /* Four bars instead of three, at staggered rest heights: an even row of equal

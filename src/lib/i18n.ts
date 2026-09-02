@@ -263,11 +263,31 @@ const RU: Record<string, string> = {
   "Stays expanded instead of collapsing back to the pill. It still hides when nothing is playing — there is nothing to show.": "Остаётся раскрытой вместо того, чтобы сворачиваться в пилюлю. Когда ничего не играет, всё равно скрывается — показывать нечего.",
   "Clawd": "Клод",
   "A pixel crab who dances in the capsule while music plays. Click him to make him stop, or start again.": "Пиксельный краб, который танцует в капсуле, пока играет музыка. Кликните по нему, чтобы он остановился или снова затанцевал.",
+  "Show Clawd": "Показывать Клода",
+  "Dance": "Танец",
+  "Click him in the capsule to settle him down, or start him off again.": "Кликните по нему в капсуле, чтобы он успокоился или снова затанцевал.",
+  "Bob": "Приседания",
+  "Sway": "Покачивание",
+  "Hop": "Прыжки",
+  "Spin": "Вращение",
+  "Size": "Размер",
+  "Colour": "Цвет",
+  "The shell. Every other tone is mixed from it, so one colour is the whole character.": "Панцирь. Все остальные оттенки смешиваются из него, поэтому один цвет задаёт всего персонажа.",
+  "Accessory": "Аксессуар",
+  "Nothing": "Ничего",
+  "Cap": "Кепка",
+  "Crown": "Корона",
+  "Headphones": "Наушники",
+  "Antenna": "Антенна",
   restart: "перезапуск",
 };
 
 /** The long blocks, where the English would otherwise dominate the markup. */
 const PROSE: Record<string, { en: string; ru: string }> = {
+  "hint.clawd": {
+    en: "You found him. He lives in the capsule, dances while the music plays, and stops when you click him. None of this was here before you tapped that cover.",
+    ru: "Вы его нашли. Он живёт в капсуле, танцует, пока играет музыка, и останавливается по клику. Ничего этого здесь не было, пока вы не постучали по обложке.",
+  },
   "hint.hotkeys": {
     en: "Click a binding and press the keys you want. Escape cancels, Backspace clears it. These are system-wide: they work whatever has focus, and a chord another app has already claimed simply will not register.",
     ru: "Нажмите на поле и введите нужное сочетание. Escape отменяет, Backspace очищает. Клавиши глобальные: работают в любом приложении, но сочетание, уже занятое другой программой, просто не сработает.",

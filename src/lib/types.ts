@@ -92,6 +92,19 @@ export interface DiscordConfig {
   buttons: PresenceButton[];
 }
 
+/** How Clawd moves, what he wears, and whether he exists yet. */
+export interface PetConfig {
+  /** Set by the discovery gesture, never by a switch. */
+  unlocked: boolean;
+  enabled: boolean;
+  /** Height in logical px, 12–32. */
+  size: number;
+  dance: "bob" | "sway" | "hop" | "spin";
+  /** `#rrggbb`; every other tone is derived from it. */
+  color: string;
+  hat: "none" | "cap" | "crown" | "headphones" | "antenna";
+}
+
 export interface MouseConfig {
   enabled: boolean;
   taskbarWheelVolume: boolean;
@@ -110,8 +123,8 @@ export interface AppConfig {
   uiScale: number;
   /** Volume past 100% and bass lift, by processing the app's audio. */
   boost: { enabled: boolean; gain: number; bassDb: number };
-  /** Clawd, the pixel pet in the collapsed capsule. Easter egg, off by default. */
-  pet: { enabled: boolean };
+  /** Clawd, the pixel pet. Hidden until the easter egg is found. */
+  pet: PetConfig;
   /** False until the first-run tour has been seen, once, ever. */
   onboarded: boolean;
   shape: "round" | "square";

@@ -334,15 +334,75 @@ impl Default for Discord {
     }
 }
 
+/// How Clawd moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Dance {
+    /// Bobs on the spot, claws counter-swinging. The default.
+    #[default]
+    Bob,
+    /// Leans side to side, like something keeping time.
+    Sway,
+    /// Small hops with a squash on the landing.
+    Hop,
+    /// Turns on the spot, in four steps.
+    Spin,
+}
+
+/// What Clawd is wearing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Hat {
+    #[default]
+    None,
+    Cap,
+    Crown,
+    Headphones,
+    Antenna,
+}
+
 /// Clawd, the pixel pet.
 ///
-/// An easter egg: a small character that dances in the collapsed capsule while
-/// music plays. Off by default — a widget that puts a cartoon on your taskbar
-/// without being asked is a different product from the one people installed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// An easter egg in the proper sense: there is no switch for it until it has
+/// been found. `unlocked` is what the discovery sets, and until then the pet
+/// section of the settings window does not exist — a feature you have to be
+/// told about in a settings list was never a secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Pet {
+    /// Found by clicking the album art repeatedly. Never set by the UI.
+    pub unlocked: bool,
+    /// Whether he is on screen. Turned on by the discovery, and a plain switch
+    /// afterwards.
     pub enabled: bool,
+    /// Height in logical pixels. Bounded by what the capsule row can hold.
+    pub size: u32,
+    pub dance: Dance,
+    /// Shell colour as `#rrggbb`. The rest of the palette is derived from it,
+    /// so one value is the whole character.
+    pub color: String,
+    pub hat: Hat,
+}
+
+impl Default for Pet {
+    fn default() -> Self {
+        Self {
+            unlocked: false,
+            enabled: false,
+            size: 20,
+            dance: Dance::Bob,
+            // Claude's rust, which is whose crab this is.
+            color: "#d97757".into(),
+            hat: Hat::None,
+        }
+    }
+}
+
+impl Pet {
+    /// Size clamped to what the collapsed row can actually fit.
+    pub fn clamped_size(&self) -> u32 {
+        self.size.clamp(12, 32)
+    }
 }
 
 /// Volume boost past 100%, and bass boost.
@@ -743,6 +803,28 @@ mod tests {
         assert_eq!(cfg.discord.activity, ActivityKind::Listening);
         assert_eq!(cfg.lyrics.offset_ms, 0);
         assert!(cfg.hotkeys.repeat.is_empty());
+    }
+
+    #[test]
+    fn the_pet_starts_locked_and_silent() {
+        // The whole point of the easter egg: a fresh install must not mention
+        // him, show him, or leave a switch lying around that does.
+        let pet = Pet::default();
+        assert!(!pet.unlocked);
+        assert!(!pet.enabled);
+        assert_eq!(pet.dance, Dance::Bob);
+        assert_eq!(pet.hat, Hat::None);
+    }
+
+    #[test]
+    fn a_hand_edited_pet_size_is_clamped_to_the_row() {
+        // The config is editable by hand, and a 400px crab in a 44px capsule is
+        // a layout bug rather than a preference.
+        let huge = Pet { size: 400, ..Pet::default() };
+        assert_eq!(huge.clamped_size(), 32);
+        let tiny = Pet { size: 0, ..Pet::default() };
+        assert_eq!(tiny.clamped_size(), 12);
+        assert_eq!(Pet::default().clamped_size(), 20);
     }
 
     #[test]

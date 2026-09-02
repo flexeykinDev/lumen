@@ -52,6 +52,9 @@
     { id: "about", label: "About", icon: "M12 8h.01M11 12h1v5h1M12 3a9 9 0 100 18 9 9 0 000-18z" },
   ];
 
+  /** A few shells that work against glass, plus a free choice beside them. */
+  const PET_COLOURS = ["#d97757", "#5aa9e6", "#6fcf97", "#c77dff", "#f2c14e", "#e26d7e"];
+
   /** Players common enough to be worth listing before they are playing. */
   const KNOWN_SOURCES = [
     "Spotify",
@@ -424,17 +427,6 @@
           </Row>
 
           <Row
-            label="Clawd"
-            description="A pixel crab who dances in the capsule while music plays. Click him to make him stop, or start again."
-          >
-            <Toggle
-              checked={cfg.pet.enabled}
-              label="Clawd"
-              onchange={(v) => patch((c) => (c.pet.enabled = v))}
-            />
-          </Row>
-
-          <Row
             label="Spectrum"
             description="Live audio bars behind the panel. The only feature that costs CPU while it runs — about half a percent of one core, and only while the panel is open and playing."
           >
@@ -445,6 +437,93 @@
             />
           </Row>
         </section>
+
+        <!-- Nothing here exists until the egg is found: an easter egg listed in
+             the settings window is a feature with a whimsical name. -->
+        {#if cfg.pet.unlocked}
+          <h3>{tr("Clawd")}</h3>
+          <p class="hint">{tr("hint.clawd")}</p>
+          <section>
+            <Row label="Show Clawd">
+              <Toggle
+                checked={cfg.pet.enabled}
+                label="Show Clawd"
+                onchange={(v) => patch((c) => (c.pet.enabled = v))}
+              />
+            </Row>
+
+            <Row label="Dance" description="Click him in the capsule to settle him down, or start him off again.">
+              <select
+                value={cfg.pet.dance}
+                disabled={!cfg.pet.enabled}
+                aria-label="Dance"
+                onchange={(e) =>
+                  patch((c) => (c.pet.dance = e.currentTarget.value as AppConfig["pet"]["dance"]))}
+              >
+                <option value="bob">{tr("Bob")}</option>
+                <option value="sway">{tr("Sway")}</option>
+                <option value="hop">{tr("Hop")}</option>
+                <option value="spin">{tr("Spin")}</option>
+              </select>
+            </Row>
+
+            <Row label="Size">
+              <div class="slider">
+                <input
+                  type="range"
+                  min="12"
+                  max="32"
+                  step="1"
+                  disabled={!cfg.pet.enabled}
+                  value={cfg.pet.size}
+                  aria-label="Clawd size"
+                  oninput={(e) => patch((c) => (c.pet.size = Number(e.currentTarget.value)))}
+                />
+                <span class="value">{cfg.pet.size}px</span>
+              </div>
+            </Row>
+
+            <Row label="Colour" description="The shell. Every other tone is mixed from it, so one colour is the whole character.">
+              <div class="swatches">
+                {#each PET_COLOURS as swatch (swatch)}
+                  <button
+                    type="button"
+                    class="swatch"
+                    class:on={cfg.pet.color.toLowerCase() === swatch}
+                    style:background={swatch}
+                    disabled={!cfg.pet.enabled}
+                    aria-label={swatch}
+                    onclick={() => patch((c) => (c.pet.color = swatch))}
+                  ></button>
+                {/each}
+                <input
+                  class="picker"
+                  type="color"
+                  disabled={!cfg.pet.enabled}
+                  value={cfg.pet.color}
+                  aria-label="Custom colour"
+                  oninput={(e) => patch((c) => (c.pet.color = e.currentTarget.value))}
+                />
+              </div>
+            </Row>
+
+            <Row label="Accessory">
+              <select
+                value={cfg.pet.hat}
+                disabled={!cfg.pet.enabled}
+                aria-label="Accessory"
+                onchange={(e) =>
+                  patch((c) => (c.pet.hat = e.currentTarget.value as AppConfig["pet"]["hat"]))}
+              >
+                <option value="none">{tr("Nothing")}</option>
+                <option value="cap">{tr("Cap")}</option>
+                <option value="crown">{tr("Crown")}</option>
+                <option value="headphones">{tr("Headphones")}</option>
+                <option value="antenna">{tr("Antenna")}</option>
+              </select>
+            </Row>
+          </section>
+        {/if}
       {:else if tab === "audio"}
         <h2>{tr("Audio & mouse")}</h2>
 
@@ -1360,6 +1439,47 @@
   .pair {
     display: flex;
     gap: 8px;
+  }
+
+  .swatches {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+    transition: transform 120ms var(--ease-snap);
+  }
+
+  .swatch:hover:not(:disabled) {
+    transform: scale(1.12);
+  }
+
+  .swatch.on {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+      0 0 0 2px var(--settings-accent);
+  }
+
+  .swatch:disabled,
+  .picker:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* The native colour input is a system control; only its frame is ours. */
+  .picker {
+    width: 26px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
   }
 
   .slider {
