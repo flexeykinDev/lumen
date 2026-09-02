@@ -33,6 +33,26 @@ export interface UpdateStatus {
   error: string | null;
 }
 
+/** One track's listening history. Mirrors `stats::Track`. */
+export interface TrackStat {
+  artist: string;
+  title: string;
+  album: string;
+  source: string;
+  plays: number;
+  seconds: number;
+  firstAt: number;
+  lastAt: number;
+}
+
+export interface StatsSummary {
+  plays: number;
+  seconds: number;
+  tracks: number;
+  artists: number;
+  since: number | null;
+}
+
 export type TransportAction = "playPause" | "next" | "previous";
 
 export const host = {
@@ -61,6 +81,12 @@ export const host = {
   checkUpdate: () => invoke<UpdateStatus>("check_update"),
   /// Opens a link in the default browser. Host-side allow-list.
   openExternal: (url: string) => invoke<void>("open_external", { url }),
+
+  /// Listening history. A local file; nothing here has ever left the machine.
+  statsTop: (limit: number) => invoke<TrackStat[]>("stats_top", { limit }),
+  statsArtists: (limit: number) => invoke<[string, number, number][]>("stats_artists", { limit }),
+  statsSummary: () => invoke<StatsSummary>("stats_summary"),
+  statsClear: () => invoke<StatsSummary>("stats_clear"),
 
   islandOrigin: () => invoke<[number, number]>("island_origin"),
   /// Suspends automatic placement for the duration of the gesture — otherwise a

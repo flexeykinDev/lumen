@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { host, type UpdateStatus } from "../lib/bridge";
+  import { host, type StatsSummary, type TrackStat, type UpdateStatus } from "../lib/bridge";
   import { currentLanguage, setLanguage, t } from "../lib/i18n";
   import type { AppConfig, PresenceButton } from "../lib/types";
   import Welcome from "./Welcome.svelte";
@@ -26,6 +26,7 @@
     | "hotkeys"
     | "discord"
     | "lyrics"
+    | "stats"
     | "advanced"
     | "about";
 
@@ -44,6 +45,11 @@
       icon: "M8 6h8a4 4 0 014 4v4a4 4 0 01-4 4H8a4 4 0 01-4-4v-4a4 4 0 014-4zM9 12h.01M15 12h.01",
     },
     { id: "lyrics", label: "Lyrics", icon: "M5 5h14M5 10h14M5 15h9" },
+    {
+      id: "stats",
+      label: "Listening",
+      icon: "M4 19V9M10 19V5M16 19v-7M22 19H2",
+    },
     {
       id: "advanced",
       label: "Advanced",
@@ -73,6 +79,10 @@
   let liveSources = $state<string[]>([]);
   let saved = $state(false);
   let update = $state<UpdateStatus | null>(null);
+  let summary = $state<StatsSummary | null>(null);
+  let top = $state<TrackStat[]>([]);
+  let artists = $state<[string, number, number][]>([]);
+  let confirmingClear = $state(false);
   let checking = $state(false);
   let savedTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -107,6 +117,41 @@
     } finally {
       checking = false;
     }
+  }
+
+  /**
+   * Read the listening history.
+   *
+   * Loaded when the tab is opened rather than at startup: it is a file read and
+   * a sort, and most sessions never look at it.
+   */
+  async function loadStats() {
+    try {
+      [summary, top, artists] = await Promise.all([
+        host.statsSummary(),
+        host.statsTop(100),
+        host.statsArtists(10),
+      ]);
+    } catch (e) {
+      console.debug("stats unavailable", e);
+    }
+  }
+
+  $effect(() => {
+    if (tab === "stats" && summary === null) void loadStats();
+  });
+
+  /** `4h 12m`, or `12m` — hours only when there are any. */
+  function duration(seconds: number): string {
+    const total = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  }
+
+  function day(unix: number | null | undefined): string {
+    if (!unix) return "—";
+    return new Date(unix * 1000).toLocaleDateString();
   }
 
   onMount(async () => {
@@ -1023,6 +1068,81 @@
             </div>
           </Row>
         </section>
+      {:else if tab === "stats"}
+        <h2>{tr("Listening")}</h2>
+        <p class="hint">{tr("hint.stats")}</p>
+
+        {#if summary && summary.plays > 0}
+          <div class="totals">
+            <div class="total">
+              <span class="figure">{summary.plays.toLocaleString()}</span>
+              <span class="caption">{tr("plays")}</span>
+            </div>
+            <div class="total">
+              <span class="figure">{duration(summary.seconds)}</span>
+              <span class="caption">{tr("listened")}</span>
+            </div>
+            <div class="total">
+              <span class="figure">{summary.tracks.toLocaleString()}</span>
+              <span class="caption">{tr("tracks")}</span>
+            </div>
+            <div class="total">
+              <span class="figure">{summary.artists.toLocaleString()}</span>
+              <span class="caption">{tr("artists")}</span>
+            </div>
+            <div class="total">
+              <span class="figure small">{day(summary.since)}</span>
+              <span class="caption">{tr("since")}</span>
+            </div>
+          </div>
+
+          {#if artists.length > 0}
+            <h3>{tr("Top artists")}</h3>
+            <div class="artists">
+              {#each artists as [name, plays] (name)}
+                <span class="artist-chip">
+                  {name}
+                  <b>{plays}</b>
+                </span>
+              {/each}
+            </div>
+          {/if}
+
+          <h3>{tr("Top 100 tracks")}</h3>
+          <ol class="chart">
+            {#each top as entry, i (entry.artist + entry.title)}
+              <li>
+                <span class="place">{i + 1}</span>
+                <span class="who">
+                  <span class="song">{entry.title}</span>
+                  <span class="by">{entry.artist || tr("Unknown artist")}</span>
+                </span>
+                <span class="time">{duration(entry.seconds)}</span>
+                <span class="plays">{entry.plays}</span>
+              </li>
+            {/each}
+          </ol>
+
+          <div class="links">
+            {#if confirmingClear}
+              <button type="button" class="link danger" onclick={async () => {
+                summary = await host.statsClear();
+                top = [];
+                artists = [];
+                confirmingClear = false;
+              }}>{tr("Yes, erase it")}</button>
+              <button type="button" class="link" onclick={() => (confirmingClear = false)}>
+                {tr("Cancel")}
+              </button>
+            {:else}
+              <button type="button" class="link" onclick={() => (confirmingClear = true)}>
+                {tr("Erase history")}
+              </button>
+            {/if}
+          </div>
+        {:else}
+          <p class="hint">{tr("Nothing yet. A track counts once it has played for thirty seconds.")}</p>
+        {/if}
       {:else if tab === "advanced"}
         <h2>{tr("Advanced")}</h2>
         <p class="hint">{tr("hint.advanced")}</p>
@@ -1534,6 +1654,148 @@
   .pair {
     display: flex;
     gap: 8px;
+  }
+
+  /* --- listening history --- */
+  .totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 16px 0 8px;
+  }
+
+  .total {
+    flex: 1 1 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    background: var(--panel-2);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
+  .figure {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .figure.small {
+    font-size: 15px;
+    padding-top: 5px;
+  }
+
+  .caption {
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+
+  .artists {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .artist-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--settings-accent) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--settings-accent) 26%, transparent);
+  }
+
+  .artist-chip b {
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-faint);
+    font-weight: 600;
+  }
+
+  .chart {
+    list-style: none;
+    margin: 8px 0 16px;
+    padding: 4px 14px;
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
+  .chart li {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .chart li:last-child {
+    border-bottom: 0;
+  }
+
+  .place {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-faint);
+    text-align: right;
+  }
+
+  /* The first three earn the accent; a chart where every row looks the same is
+     a table. */
+  .chart li:nth-child(-n + 3) .place {
+    color: var(--settings-accent);
+    font-weight: 700;
+  }
+
+  .who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .song,
+  .by {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .song {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .by {
+    font-size: 11.5px;
+    color: var(--ink-dim);
+  }
+
+  .time {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .plays {
+    min-width: 34px;
+    text-align: right;
+    font-size: 12.5px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .link.danger {
+    color: #ffb4b4;
+  }
+
+  .link.danger:hover {
+    background: rgba(255, 107, 107, 0.16);
+    color: #fff;
   }
 
   .links {

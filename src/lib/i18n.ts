@@ -290,6 +290,19 @@ const RU: Record<string, string> = {
   "Check again": "Проверить снова",
   "Check for updates": "Проверять обновления",
   "One request per launch to a text file in this repository. Nothing is downloaded, and nothing identifies the machine.": "Один запрос за запуск к текстовому файлу в этом репозитории. Ничего не скачивается и ничего не идентифицирует компьютер.",
+  "Listening": "Прослушивания",
+  "plays": "прослушиваний",
+  "listened": "прослушано",
+  "tracks": "треков",
+  "artists": "исполнителей",
+  "since": "с",
+  "Top artists": "Топ исполнителей",
+  "Top 100 tracks": "Топ-100 треков",
+  "Unknown artist": "Неизвестный исполнитель",
+  "Erase history": "Стереть историю",
+  "Yes, erase it": "Да, стереть",
+  "Cancel": "Отмена",
+  "Nothing yet. A track counts once it has played for thirty seconds.": "Пока пусто. Трек засчитывается после тридцати секунд воспроизведения.",
   restart: "перезапуск",
 };
 
@@ -298,6 +311,10 @@ const PROSE: Record<string, { en: string; ru: string }> = {
   "hint.clawd": {
     en: "You found him. He lives in the capsule, dances while the music plays, and stops when you click him. None of this was here before you tapped that cover.",
     ru: "Вы его нашли. Он живёт в капсуле, танцует, пока играет музыка, и останавливается по клику. Ничего этого здесь не было, пока вы не постучали по обложке.",
+  },
+  "hint.stats": {
+    en: "Counted on this machine and kept in a file beside the config. A track counts once it has played for thirty seconds — or half its length, if it is shorter — so skipping through a playlist does not fill the chart with songs you rejected. Nothing here is ever sent anywhere.",
+    ru: "Считается на этом компьютере и хранится в файле рядом с настройками. Трек засчитывается после тридцати секунд воспроизведения — или половины длительности, если он короче, — поэтому перелистывание плейлиста не забивает чарт песнями, которые вы пропустили. Ничего из этого никуда не отправляется.",
   },
   "hint.hotkeys": {
     en: "Click a binding and press the keys you want. Escape cancels, Backspace clears it. These are system-wide: they work whatever has focus, and a chord another app has already claimed simply will not register.",

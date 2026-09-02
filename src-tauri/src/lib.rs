@@ -21,6 +21,7 @@ pub mod presence;
 pub mod share;
 pub mod smart_pause;
 pub mod spectrum;
+pub mod stats;
 pub mod update;
 pub mod single_instance;
 pub mod util;
@@ -96,6 +97,10 @@ pub fn run() {
             ipc::open_settings,
             ipc::restart,
             ipc::check_update,
+            ipc::stats_top,
+            ipc::stats_artists,
+            ipc::stats_summary,
+            ipc::stats_clear,
             ipc::open_external,
             ipc::seek,
             ipc::island_origin,
@@ -229,6 +234,8 @@ pub fn run() {
                     })?
                 };
 
+                let stats = Arc::new(stats::Stats::load(cfg.path()));
+
                 app.manage(Ctx {
                     media: Arc::clone(&media),
                     policy: Arc::clone(&policy),
@@ -239,6 +246,7 @@ pub fn run() {
                     info,
                     spectrum: std::sync::Mutex::new(None),
                     boost: Some(Arc::new(audio::boost::Supervisor::default())),
+                    stats: Arc::clone(&stats),
                 });
 
                 // Presence is published *as* a Discord application, so without an
@@ -329,10 +337,12 @@ pub fn run() {
             // Boost holds the playing application muted. Leaving on exit
             // without lifting that would leave someone with a silent Spotify
             // and no idea which app did it.
-            if let Some(ctx) = app.try_state::<Ctx>()
-                && let Some(boost) = ctx.boost.as_ref()
-            {
-                boost.stop();
+            if let Some(ctx) = app.try_state::<Ctx>() {
+                if let Some(boost) = ctx.boost.as_ref() {
+                    boost.stop();
+                }
+                // Credit whatever the current track has earned before leaving.
+                ctx.stats.flush();
             }
         }
     });
@@ -388,6 +398,7 @@ fn pump_media(
         let _ = app.emit(ipc::EVT_NOW_PLAYING, &snapshot);
         publish_app_volume(&app, &snapshot.source);
         apply_boost(&app, Some(&snapshot));
+        observe_stats(&app, Some(&snapshot));
         if let Some(p) = presence.as_ref() {
             p.update(for_discord(&snapshot, &discord));
         }
@@ -412,6 +423,7 @@ fn pump_media(
                             // Follows the source: pausing releases the mute,
                             // and switching player moves the boost with it.
                             apply_boost(&app, Some(np));
+                            observe_stats(&app, Some(np));
                             // One lookup per track: the service ignores repeats
                             // for anything it has already fetched.
                             if let Some(l) = lyrics.as_ref() {
@@ -433,6 +445,7 @@ fn pump_media(
                         MediaEvent::Vanished => {
                             let _ = app.emit(ipc::EVT_NOW_PLAYING, Option::<()>::None);
                             apply_boost(&app, None);
+                            observe_stats(&app, None);
                             if let Some(p) = presence.as_ref() {
                                 p.update(None);
                             }
@@ -561,6 +574,17 @@ fn install_mouse_hook(app: &tauri::AppHandle, cfg: Arc<ConfigStore>, policy: Arc
             app.manage(hook);
         }
         Err(e) => tracing::warn!("mouse hook unavailable: {e:#}"),
+    }
+}
+
+/// Feed the listening history whatever the media backend just reported.
+///
+/// Called from the same places as the boost: a track change, a play/pause, and
+/// the session vanishing are exactly the moments the accumulated time has to be
+/// banked or credited.
+fn observe_stats(app: &tauri::AppHandle, np: Option<&media::NowPlaying>) {
+    if let Some(ctx) = app.try_state::<Ctx>() {
+        ctx.stats.observe(np);
     }
 }
 

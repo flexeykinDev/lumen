@@ -9,7 +9,7 @@
 <p>
   <a href="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/flexeykinDev/lumen/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/flexeykinDev/lumen?color=7a8cff&label=release" /></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-152%20passing-5ad19b" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-161%20passing-5ad19b" />
   <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-5ad19b" />
   <img alt="Size" src="https://img.shields.io/badge/exe-4.3%20MB-c8cee0" />
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%201809%2B-0078d4" />
@@ -47,6 +47,10 @@
   его не покажет: настройки для него не существуют, пока вы его не найдёте. А
   когда найдёте — новый танец на каждый трек, размер, цвет (по умолчанию берётся
   от обложки), аксессуары, реакция на тычок и сон, когда музыка молчит.
+- **История прослушиваний.** Все прослушивания считаются локально: топ-100,
+  топ исполнителей и итоги в окне настроек. Трек засчитывается после тридцати
+  секунд (или половины длительности, если он короче), поэтому перелистывание
+  плейлиста не забивает чарт. Никуда ничего не отправляется.
 - **Проверка обновлений.** Один запрос за запуск к текстовому файлу в этом
   репозитории. Только сообщает — ничего не скачивает и не подменяет.
 - **Портативность.** Один exe на 4,3 МБ и один JSON рядом с ним. Без
@@ -131,7 +135,8 @@ Alt + средний клик.
 Все параметры ниже есть в окне настроек, на русском или английском, и
 сохраняются сразу.
 
-`lumen.config.json` рядом с exe. Если каталог только для чтения, используется
+`lumen.config.json` рядом с exe. История прослушиваний — `lumen.stats.json` в
+той же папке: обычный JSON, который можно прочитать или удалить. Если каталог только для чтения, используется
 `%APPDATA%\Lumen\`; подсказка в трее говорит, какой путь выбран. Всё это есть и
 в окне настроек.
 

@@ -9,7 +9,7 @@ do with it.
 <p>
   <a href="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/flexeykinDev/lumen/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/flexeykinDev/lumen?color=7a8cff&label=release" /></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-152%20passing-5ad19b" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-161%20passing-5ad19b" />
   <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-5ad19b" />
   <img alt="Size" src="https://img.shields.io/badge/exe-4.3%20MB-c8cee0" />
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%201809%2B-0078d4" />
@@ -45,6 +45,10 @@ do with it.
   different dance every track, a size, a colour that follows the album art by
   default, accessories, a reaction when you poke him, and he sleeps when the
   music stops.
+- **Listening history.** Every play counted locally, with a top 100, top
+  artists and totals in the settings window. A track counts after thirty seconds
+  — or half its length if shorter — so skipping a playlist does not fill the
+  chart with songs you rejected. Nothing is sent anywhere.
 - **Update check.** One request per launch to a text file in this repository.
   It reports; it never downloads or replaces anything.
 - **Portable.** One 4.3 MB exe, one JSON file beside it. No installer, no
@@ -130,7 +134,8 @@ the moment it changes.
 
 ## Configuration
 
-`lumen.config.json`, beside the exe. Falls back to `%APPDATA%\Lumen\` when the
+`lumen.config.json`, beside the exe. The listening history is `lumen.stats.json`
+in the same folder — plain JSON, yours to read or delete. Falls back to `%APPDATA%\Lumen\` when the
 exe directory is read-only; the tray tooltip says which is in use. Everything
 below is also in the settings window.
 

@@ -68,6 +68,8 @@ pub struct Ctx {
     /// Volume and bass boost. Holds an engine only while boost is on and
     /// something is playing, so the cost is zero the rest of the time.
     pub boost: Option<Arc<crate::audio::boost::Supervisor>>,
+    /// What has actually been listened to. Local file, never sent anywhere.
+    pub stats: Arc<crate::stats::Stats>,
 }
 
 #[tauri::command]
@@ -343,6 +345,30 @@ pub fn open_settings(ctx: State<'_, Ctx>) {
     // Window creation belongs on the main thread; a command runs on the async
     // runtime, so hop rather than assume.
     let _ = ctx.app.run_on_main_thread(move || crate::open_settings(&app));
+}
+
+/// The most played tracks, best first.
+#[tauri::command]
+pub fn stats_top(ctx: State<'_, Ctx>, limit: usize) -> Vec<crate::stats::Track> {
+    ctx.stats.top(limit.clamp(1, 500))
+}
+
+/// The most played artists, as `[name, plays, seconds]`.
+#[tauri::command]
+pub fn stats_artists(ctx: State<'_, Ctx>, limit: usize) -> Vec<(String, u32, f64)> {
+    ctx.stats.top_artists(limit.clamp(1, 200))
+}
+
+#[tauri::command]
+pub fn stats_summary(ctx: State<'_, Ctx>) -> crate::stats::Summary {
+    ctx.stats.summary()
+}
+
+/// Forget everything. Deliberately not undoable, and the UI asks first.
+#[tauri::command]
+pub fn stats_clear(ctx: State<'_, Ctx>) -> crate::stats::Summary {
+    ctx.stats.clear();
+    ctx.stats.summary()
 }
 
 /// Ask GitHub whether a newer Lumen has been published.
