@@ -411,13 +411,17 @@ fn build_tray(
         None => "Lumen — settings are not persisted (no writable location)".to_owned(),
     };
 
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or_else(|| tauri::Error::UnknownPath)?;
+    // A dedicated mark rather than the application icon.
+    //
+    // The tray renders at 16 px (or 24 at 150% scaling), and the app icon has a
+    // house, two chevrons and a landscape in it — roughly 250 pixels to carry
+    // four shapes, so at that size it resolves to mush. This is the crescent on
+    // its own, which is the one element with a silhouette big enough to survive.
+    // Embedded at compile time so the portable exe stays a single file.
+    let _ = app.default_window_icon();
 
     TrayIconBuilder::with_id("lumen-tray")
-        .icon(icon)
+        .icon(tauri::include_image!("icons/tray.png"))
         .menu(&menu)
         .tooltip(&tooltip)
         .show_menu_on_left_click(false)
