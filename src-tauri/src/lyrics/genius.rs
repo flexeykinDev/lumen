@@ -14,7 +14,7 @@
 
 use anyhow::Context;
 
-use super::http;
+use crate::net as http;
 
 /// Lyrics live inside one or more of these on a Genius song page.
 const CONTAINER: &str = "data-lyrics-container";

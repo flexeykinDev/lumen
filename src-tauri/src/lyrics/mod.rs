@@ -29,9 +29,9 @@ use std::sync::{
 use serde::Serialize;
 
 use crate::media::NowPlaying;
+use crate::net as http;
 
 pub mod genius;
-mod http;
 mod lrc;
 pub mod source;
 pub mod timing;

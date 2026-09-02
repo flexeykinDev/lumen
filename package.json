@@ -9,7 +9,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:motion": "node scripts/check-motion.mjs",
     "tauri": "tauri",
-    "start": "tauri dev",
+    "start": "tauri dev --no-default-features",
     "build:fast": "tauri build --debug",
     "release": "tauri build"
   },

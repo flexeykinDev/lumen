@@ -23,10 +23,7 @@ use global_hotkey::{
     hotkey::{HotKey, Modifiers},
 };
 
-use crate::{
-    config::Hotkeys,
-    media::{MediaBackend, TransportCmd},
-};
+use crate::{config::Hotkeys, media::TransportCmd};
 
 /// `GlobalHotKeyManager` owns a message-only window and is therefore neither
 /// `Send` nor `Sync`, but Tauri's managed state requires both.
@@ -47,6 +44,12 @@ unsafe impl Sync for MainThreadOnly {}
 pub enum HotkeyAction {
     Transport(TransportCmd),
     CycleSession,
+    /// Move the playing application's own volume, in `volume_step` units.
+    Volume(i32),
+    /// Put the capsule away, or bring it back.
+    ToggleVisible,
+    /// Hold the full panel open, or let it collapse again.
+    TogglePinned,
 }
 
 pub struct HotkeyService {
@@ -66,7 +69,7 @@ impl HotkeyService {
     /// error here would mean one busy key disables all media control.
     pub fn start(
         keys: &Hotkeys,
-        backend: Arc<dyn MediaBackend>,
+        on_action: impl Fn(HotkeyAction) + Send + 'static,
     ) -> anyhow::Result<Arc<Self>> {
         let manager = GlobalHotKeyManager::new().context("could not create the hotkey manager")?;
 
@@ -77,7 +80,7 @@ impl HotkeyService {
         });
 
         service.rebind(keys);
-        service.pump(backend);
+        service.pump(on_action);
         Ok(service)
     }
 
@@ -85,7 +88,7 @@ impl HotkeyService {
     ///
     /// This is a blocking `recv`, not a poll — the thread is asleep and costs
     /// nothing until a key is actually pressed.
-    fn pump(&self, backend: Arc<dyn MediaBackend>) {
+    fn pump(&self, on_action: impl Fn(HotkeyAction) + Send + 'static) {
         let bindings = Arc::clone(&self.bindings);
         let _ = std::thread::Builder::new().name("lumen-hotkeys".into()).spawn(move || {
             let rx = GlobalHotKeyEvent::receiver();
@@ -111,13 +114,11 @@ impl HotkeyService {
                     continue;
                 };
 
-                let result = match action {
-                    HotkeyAction::Transport(cmd) => backend.control(cmd),
-                    HotkeyAction::CycleSession => backend.cycle(),
-                };
-                if let Err(e) = result {
-                    tracing::warn!("hotkey {action:?} could not be delivered: {e}");
-                }
+                // What an action *does* is the caller's business: a binding may
+                // need the media backend, the volume actor or the visibility
+                // policy, and this module has no reason to know about any of
+                // them. See `lib.rs`, where the three are already at hand.
+                on_action(action);
             }
         });
     }
@@ -138,6 +139,11 @@ impl HotkeyService {
             (keys.next.as_str(), HotkeyAction::Transport(TransportCmd::Next)),
             (keys.previous.as_str(), HotkeyAction::Transport(TransportCmd::Previous)),
             (keys.cycle_session.as_str(), HotkeyAction::CycleSession),
+            (keys.volume_up.as_str(), HotkeyAction::Volume(1)),
+            (keys.volume_down.as_str(), HotkeyAction::Volume(-1)),
+            (keys.repeat.as_str(), HotkeyAction::Transport(TransportCmd::CycleRepeat)),
+            (keys.toggle_visible.as_str(), HotkeyAction::ToggleVisible),
+            (keys.toggle_pinned.as_str(), HotkeyAction::TogglePinned),
         ];
 
         // An empty spec is how a binding is switched off in the config, and is

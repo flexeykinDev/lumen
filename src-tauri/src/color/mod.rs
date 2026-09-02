@@ -129,7 +129,7 @@ fn build(base: Rgb) -> Accent {
 
     // Floor the saturation so grey covers still tint the UI instead of
     // producing an invisible accent; cap lightness so it never blows out.
-    let s = s.max(0.52).min(0.92);
+    let s = s.clamp(0.52, 0.92);
     let l = l.clamp(0.46, 0.68);
     let base = from_hsl(h, s, l);
 

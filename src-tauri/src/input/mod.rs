@@ -8,5 +8,5 @@ pub mod hotkeys;
 pub mod mouse_hook;
 pub mod taskbar_target;
 
-pub use hotkeys::HotkeyService;
+pub use hotkeys::{HotkeyAction, HotkeyService};
 pub use mouse_hook::{MouseAction, MouseHook};

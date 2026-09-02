@@ -33,6 +33,7 @@ use windows::{
         MediaPropertiesChangedEventArgs, PlaybackInfoChangedEventArgs, SessionsChangedEventArgs,
         TimelinePropertiesChangedEventArgs,
     },
+    Media::MediaPlaybackAutoRepeatMode,
     Storage::Streams::{DataReader, IRandomAccessStreamReference, InputStreamOptions},
     Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
 };
@@ -1020,6 +1021,23 @@ impl Worker {
                     .unwrap_or(0);
                 let ticks = start_ticks + (seconds.max(0.0) * 10_000_000.0) as i64;
                 await_op(session.TryChangePlaybackPositionAsync(ticks)?)?
+            }
+            // Read the mode back from the session rather than counting our own
+            // presses: the player is free to change it from its own UI, and a
+            // counter here would then be one step out of step forever.
+            TransportCmd::CycleRepeat => {
+                let current = session
+                    .GetPlaybackInfo()
+                    .and_then(|info| info.AutoRepeatMode())
+                    .and_then(|mode| mode.Value())
+                    .unwrap_or(MediaPlaybackAutoRepeatMode::None);
+                let next = match current {
+                    MediaPlaybackAutoRepeatMode::None => MediaPlaybackAutoRepeatMode::List,
+                    MediaPlaybackAutoRepeatMode::List => MediaPlaybackAutoRepeatMode::Track,
+                    _ => MediaPlaybackAutoRepeatMode::None,
+                };
+                tracing::info!("repeat: {current:?} -> {next:?}");
+                await_op(session.TryChangeAutoRepeatModeAsync(next)?)?
             }
         };
 

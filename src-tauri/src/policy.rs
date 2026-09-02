@@ -42,10 +42,14 @@ pub struct Policy {
     /// on the capsule would retire the flash timer as well — leaving `present`
     /// stuck true and the capsule on screen indefinitely with nothing playing.
     flash_epoch: AtomicU64,
+    /// Stay expanded rather than collapsing back. Set by the hotkey and by the
+    /// config, so the choice survives a restart.
+    pinned: AtomicBool,
 }
 
 impl Policy {
     pub fn new(island: Arc<Island>, cfg: Arc<ConfigStore>) -> Arc<Self> {
+        let pinned = cfg.get().always_expanded;
         Arc::new(Self {
             island,
             cfg,
@@ -55,6 +59,7 @@ impl Policy {
             peeking: AtomicBool::new(false),
             peek_epoch: AtomicU64::new(0),
             flash_epoch: AtomicU64::new(0),
+            pinned: AtomicBool::new(pinned),
         })
     }
 
@@ -128,14 +133,38 @@ impl Policy {
     /// Collapse the flags into a single target state and hand it to the window.
     /// `Island::set_state` is idempotent, so calling this spuriously is free.
     pub fn resolve(&self) {
+        let pinned = self.pinned.load(Ordering::SeqCst);
         let next = if !self.present.load(Ordering::SeqCst) {
             IslandState::Hidden
-        } else if self.hover.load(Ordering::SeqCst) || self.peeking.load(Ordering::SeqCst) {
+        } else if pinned
+            || self.hover.load(Ordering::SeqCst)
+            || self.peeking.load(Ordering::SeqCst)
+        {
             IslandState::Expanded
         } else {
             IslandState::Collapsed
         };
         self.island.set_state(next);
+    }
+
+    /// Hold the panel open instead of collapsing it between peeks.
+    ///
+    /// Pinning does not force the capsule *on screen* — with nothing playing
+    /// there is still nothing to show, and a permanently visible empty panel is
+    /// a different feature. It only decides which state it settles into when it
+    /// is up.
+    pub fn set_pinned(&self, pinned: bool) {
+        self.pinned.store(pinned, Ordering::SeqCst);
+        self.resolve();
+    }
+
+    pub fn pinned(&self) -> bool {
+        self.pinned.load(Ordering::SeqCst)
+    }
+
+    /// Whether the capsule is currently on screen at all.
+    pub fn visible(&self) -> bool {
+        self.present.load(Ordering::SeqCst)
     }
 
     /// Force the island on screen — the tray's "Show now" and, later, a hotkey.

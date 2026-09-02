@@ -119,7 +119,7 @@ impl Island {
         let hwnd = window.hwnd()?.0 as isize;
         // Seed from the monitor we will actually dock to, not from the window's
         // current (arbitrary, pre-placement) position.
-        let scale = taskbar::dock_for(conf.monitor).scale;
+        let scale = effective_scale(&conf, taskbar::dock_for(conf.monitor).scale);
 
         let dark = matches!(conf.theme, crate::config::Theme::Dark | crate::config::Theme::System);
         let backdrop = backdrop::apply(&window, conf.backdrop, dark);
@@ -268,18 +268,19 @@ impl Island {
         }
 
         let dock = taskbar::dock_for(conf.monitor);
+        let scale = effective_scale(conf, dock.scale);
 
         let changed = {
             let mut guard = self.scale.write().expect("scale lock poisoned");
-            let changed = (*guard - dock.scale).abs() > f64::EPSILON;
-            *guard = dock.scale;
+            let changed = (*guard - scale).abs() > f64::EPSILON;
+            *guard = scale;
             changed
         };
 
         // Gaps are configured in logical pixels and scaled by the *destination*
         // monitor, so the island sits the same visual distance from the edge on
         // a 100% display and a 200% one.
-        let (gap, margin) = scaled_insets(conf, dock.scale);
+        let (gap, margin) = scaled_insets(conf, scale);
         let work = dock.work;
 
         let _ = work;
@@ -291,10 +292,10 @@ impl Island {
         // physical size, so re-issue it rather than waiting for the next
         // transition to notice.
         if changed && self.state() != IslandState::Hidden {
-            tracing::info!("dpi scale is now {:.2}; resizing", dock.scale);
+            tracing::info!("effective scale is now {scale:.2}; resizing");
             let target = match self.state() {
-                IslandState::Expanded => expanded_size(dock.scale),
-                _ => collapsed_size(dock.scale),
+                IslandState::Expanded => expanded_size(scale),
+                _ => collapsed_size(scale),
             };
             self.geometry.snap_to(target);
         }
@@ -550,6 +551,17 @@ impl Island {
 /// The work area already excludes the taskbar on whichever edge it lives, so
 /// docking against it is correct for a taskbar on any side, for auto-hide, and
 /// for third-party appbars — without special-casing any of them.
+/// The monitor's DPI scale multiplied by the user's own zoom.
+///
+/// Windows' own scale is what makes the capsule the same *physical* size on
+/// every display; `ui_scale` is a preference on top of it, for a 4K panel run
+/// at 100% where everything correct is also everything tiny. Clamped because
+/// the capsule's proportions stop working long before the extremes: below 0.75
+/// the text is unreadable, above 2.0 it stops being a capsule.
+pub fn effective_scale(conf: &Config, dpi_scale: f64) -> f64 {
+    dpi_scale * f64::from(conf.ui_scale).clamp(0.75, 2.0)
+}
+
 /// The gap and edge margin in physical pixels for a monitor at `scale`.
 ///
 /// Both are configured in *logical* pixels so the capsule sits the same visual

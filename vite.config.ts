@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
@@ -16,6 +17,14 @@ export default defineConfig({
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {
+    // Two windows, two entry points: the capsule and the settings panel are
+    // separate documents so the 428px island never loads the settings UI.
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        settings: resolve(__dirname, "settings.html"),
+      },
+    },
     // WebView2 on Win10 1809+ is evergreen Chromium; target modern output.
     target: "chrome110",
     // Vite 8 minifies with oxc; naming esbuild here would pull in a dependency

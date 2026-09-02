@@ -5,15 +5,18 @@
 //! never reaches into another; they are wired together exactly once, here.
 
 pub mod appinfo;
+pub mod autostart;
 pub mod audio;
 pub mod color;
 pub mod config;
+pub mod i18n;
 pub mod input;
 pub mod ipc;
 pub mod lyrics;
 pub mod media;
 pub mod motion;
 pub mod policy;
+pub mod net;
 pub mod presence;
 pub mod share;
 pub mod smart_pause;
@@ -42,6 +45,9 @@ use crate::{
 /// The window label the whole app refers to. Matches `tauri.conf.json`.
 const ISLAND: &str = "island";
 
+/// The settings window. Built on demand — see [`open_settings`].
+const SETTINGS: &str = "settings";
+
 pub fn run() {
     init_tracing();
 
@@ -54,6 +60,10 @@ pub fn run() {
     tune_webview();
 
     let cfg = Arc::new(ConfigStore::load());
+    // Reconciled every launch: a portable exe gets moved, and a Run entry
+    // pointing at the old path either does nothing or starts whatever took its
+    // place. See `autostart::sync`.
+    autostart::sync(cfg.get().start_with_windows);
     tracing::info!(
         "config: {} ({:?})",
         cfg.path().map(|p| p.display().to_string()).unwrap_or_else(|| "<memory>".into()),
@@ -82,6 +92,8 @@ pub fn run() {
             ipc::placement,
             ipc::get_config,
             ipc::set_config,
+            ipc::open_settings,
+            ipc::restart,
             ipc::seek,
             ipc::island_origin,
             ipc::drag_start,
@@ -116,12 +128,9 @@ pub fn run() {
                 }
 
                 let island = Island::attach(handle.clone(), window, Arc::clone(&cfg))?;
+                apply_zoom(&handle, cfg.get().ui_scale);
                 let info = RuntimeInfo::build(island.backdrop_kind(), &cfg);
                 let policy = Policy::new(island, Arc::clone(&cfg));
-
-                // Must be constructed on the main thread: `global-hotkey`
-                // registers against the calling thread's message queue.
-                let hotkeys = HotkeyService::start(&cfg.get().hotkeys, Arc::clone(&media))?;
 
                 // A machine with no audio endpoint is unusual but real (RDP
                 // sessions, disabled devices). Volume then simply does nothing
@@ -156,6 +165,67 @@ pub fn run() {
                     }
                 };
 
+                // Must be constructed on the main thread: `global-hotkey`
+                // registers against the calling thread's message queue. Built
+                // here, after the volume actor, because a binding may need any
+                // of the three subsystems and this is the first point where all
+                // of them exist.
+                let hotkeys = {
+                    let media = Arc::clone(&media);
+                    let policy = Arc::clone(&policy);
+                    let cfg = Arc::clone(&cfg);
+                    let volume = volume.clone();
+                    HotkeyService::start(&cfg.get().hotkeys, move |action| {
+                        use input::HotkeyAction;
+                        match action {
+                            HotkeyAction::Transport(cmd) => {
+                                if let Err(e) = media.control(cmd) {
+                                    tracing::warn!("hotkey {cmd:?} failed: {e}");
+                                }
+                            }
+                            HotkeyAction::CycleSession => {
+                                if let Err(e) = media.cycle() {
+                                    tracing::warn!("hotkey session switch failed: {e}");
+                                }
+                            }
+                            // Same routing as the island wheel: the playing
+                            // application's own level, falling back to the
+                            // master when it has no audio session.
+                            HotkeyAction::Volume(direction) => {
+                                let Some(v) = volume.as_ref() else { return };
+                                let conf = cfg.get();
+                                let delta = conf.volume_step * direction as f32;
+                                match media
+                                    .snapshot()
+                                    .map(|np| np.source)
+                                    .and_then(|source| {
+                                        audio::session::find_by_display_name(&source)
+                                    })
+                                    .map(|(exe, label)| audio::volume::AppTarget { exe, label })
+                                {
+                                    Some(target) => v.adjust_app(target, delta),
+                                    None => v.adjust(delta),
+                                }
+                            }
+                            HotkeyAction::ToggleVisible => {
+                                if policy.visible() {
+                                    policy.conceal();
+                                } else {
+                                    policy.reveal();
+                                }
+                            }
+                            // Persisted, so "always open" survives a restart
+                            // rather than being a mode you have to re-arm.
+                            HotkeyAction::TogglePinned => {
+                                let next = !policy.pinned();
+                                policy.set_pinned(next);
+                                cfg.update(|c| c.always_expanded = next);
+                                tracing::info!("panel pinned open: {next}");
+                            }
+                        }
+                    })?
+                };
+
                 app.manage(Ctx {
                     media: Arc::clone(&media),
                     policy: Arc::clone(&policy),
@@ -165,6 +235,7 @@ pub fn run() {
                     app: handle.clone(),
                     info,
                     spectrum: std::sync::Mutex::new(None),
+                    boost: Some(Arc::new(audio::boost::Supervisor::default())),
                 });
 
                 // Presence is published *as* a Discord application, so without an
@@ -182,9 +253,7 @@ pub fn run() {
                     );
                     None
                 } else {
-                    Some(Arc::new(presence::Presence::start(
-                        discord.application_id.trim().to_owned(),
-                    )))
+                    Some(Arc::new(presence::Presence::start(discord.clone())))
                 };
 
                 // Failure is never fatal: a machine or policy that refuses the
@@ -224,6 +293,21 @@ pub fn run() {
                     None
                 };
 
+                // First launch: introduce the features that change how the
+                // machine behaves, rather than waiting to be discovered by
+                // accident. Once, ever — the answer is in the config.
+                if !cfg.get().onboarded {
+                    open_settings(&handle);
+                }
+
+                // The settings window normally arrives via the tray, which is
+                // awkward to reach from a script or a shortcut. Kept in release
+                // too: it costs one env lookup and makes the panel reachable
+                // without hunting for the tray icon.
+                if std::env::var_os("LUMEN_SETTINGS").is_some() {
+                    open_settings(&handle);
+                }
+
                 build_tray(app, Arc::clone(&policy), Arc::clone(&cfg))?;
                 install_mouse_hook(&handle, Arc::clone(&cfg), Arc::clone(&policy));
                 pump_media(handle, Arc::clone(&media), Arc::clone(&policy), presence, lyrics);
@@ -234,11 +318,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build the Lumen application");
 
-    app.run(|_app, event| {
+    app.run(|app, event| {
         // The island window is never closed, so an exit request can only come
         // from the tray — let it through untouched.
         if let RunEvent::ExitRequested { .. } = event {
             tracing::info!("shutting down");
+            // Boost holds the playing application muted. Leaving on exit
+            // without lifting that would leave someone with a silent Spotify
+            // and no idea which app did it.
+            if let Some(ctx) = app.try_state::<Ctx>()
+                && let Some(boost) = ctx.boost.as_ref()
+            {
+                boost.stop();
+            }
         }
     });
 }
@@ -261,10 +353,14 @@ fn pump_media(
     /// Paused is a deliberate choice rather than an oversight: a profile that
     /// still says "listening" hours after the music stopped is worse than one
     /// that says nothing, so a pause clears it unless asked otherwise.
-    fn for_discord(np: &NowPlaying, paused_too: bool) -> Option<NowPlaying> {
-        let worth_showing =
-            np.state == media::PlaybackState::Playing || (paused_too && np.state == media::PlaybackState::Paused);
-        worth_showing.then(|| np.clone())
+    ///
+    /// A hidden source clears the presence rather than freezing it — leaving the
+    /// last public track up while something private plays would be the opposite
+    /// of what hiding it is for.
+    fn for_discord(np: &NowPlaying, cfg: &config::Discord) -> Option<NowPlaying> {
+        let worth_showing = np.state == media::PlaybackState::Playing
+            || (cfg.show_while_paused && np.state == media::PlaybackState::Paused);
+        (worth_showing && cfg.publishes(&np.source)).then(|| np.clone())
     }
 
     /// Ask the volume actor to report the playing app's own level.
@@ -279,17 +375,18 @@ fn pump_media(
         }
     }
 
-    let paused_too = app
+    let discord = app
         .try_state::<Ctx>()
-        .map(|ctx| ctx.cfg.get().discord.show_while_paused)
-        .unwrap_or(false);
+        .map(|ctx| ctx.cfg.get().discord)
+        .unwrap_or_default();
 
     // Catch up on anything that arrived between backend start and window ready.
     if let Some(snapshot) = media.snapshot() {
         let _ = app.emit(ipc::EVT_NOW_PLAYING, &snapshot);
         publish_app_volume(&app, &snapshot.source);
+        apply_boost(&app, Some(&snapshot));
         if let Some(p) = presence.as_ref() {
-            p.update(for_discord(&snapshot, paused_too));
+            p.update(for_discord(&snapshot, &discord));
         }
         if let Some(l) = lyrics.as_ref() {
             l.request(&snapshot);
@@ -309,13 +406,16 @@ fn pump_media(
                             // another player), so re-read rather than assuming
                             // the first reading still applies.
                             publish_app_volume(&app, &np.source);
+                            // Follows the source: pausing releases the mute,
+                            // and switching player moves the boost with it.
+                            apply_boost(&app, Some(np));
                             // One lookup per track: the service ignores repeats
                             // for anything it has already fetched.
                             if let Some(l) = lyrics.as_ref() {
                                 l.request(np);
                             }
                             if let Some(p) = presence.as_ref() {
-                                p.update(for_discord(np, paused_too));
+                                p.update(for_discord(np, &discord));
                             }
                         }
                         MediaEvent::TimelineChanged(np) => {
@@ -324,11 +424,12 @@ fn pump_media(
                             // The actor de-duplicates and rate-limits, so the
                             // steady stream of timeline events costs nothing.
                             if let Some(p) = presence.as_ref() {
-                                p.update(for_discord(np, paused_too));
+                                p.update(for_discord(np, &discord));
                             }
                         }
                         MediaEvent::Vanished => {
                             let _ = app.emit(ipc::EVT_NOW_PLAYING, Option::<()>::None);
+                            apply_boost(&app, None);
                             if let Some(p) = presence.as_ref() {
                                 p.update(None);
                             }
@@ -415,9 +516,27 @@ fn install_mouse_hook(app: &tauri::AppHandle, cfg: Arc<ConfigStore>, policy: Arc
                 tracing::info!("middle-click on the capsule: hiding");
                 policy_for_actions.conceal();
             }
+            // The escape hatch: out now, with nothing written on the way.
+            //
+            // `app.exit` runs Tauri's shutdown, which persists window state and
+            // gives every subsystem a chance to write. That is the wrong
+            // behaviour for a gesture whose whole purpose is "stop, and forget
+            // whatever just happened" — so this leaves by the shortest path
+            // instead. Settings are saved as they change, so nothing the user
+            // deliberately set is lost.
+            //
+            // The one thing that must still happen is undoing what Lumen did to
+            // *other* applications: boost holds the playing app at two percent,
+            // and exiting over that would leave someone with a near-silent
+            // Spotify and no clue which program did it.
             MouseAction::QuitApp => {
-                tracing::info!("alt + middle-click on the capsule: exiting");
-                app_for_actions.exit(0);
+                tracing::info!("alt + middle-click on the capsule: killing this instance");
+                if let Some(ctx) = app_for_actions.try_state::<Ctx>()
+                    && let Some(boost) = ctx.boost.as_ref()
+                {
+                    boost.stop();
+                }
+                std::process::exit(0);
             }
             MouseAction::CloseTaskbarApp(x, y) => {
                 use input::taskbar_target::{CloseOutcome, close_at};
@@ -442,29 +561,110 @@ fn install_mouse_hook(app: &tauri::AppHandle, cfg: Arc<ConfigStore>, policy: Arc
     }
 }
 
+/// Start, stop or retune the boost for whatever is playing.
+///
+/// The display name SMTC reports is not a process, so the application has to be
+/// resolved through its audio session — the same bridge the taskbar wheel uses
+/// to find a per-app volume. Called from the media loop and from a settings
+/// change, because either can make the answer different.
+pub fn apply_boost(app: &tauri::AppHandle, np: Option<&media::NowPlaying>) {
+    let Some(ctx) = app.try_state::<Ctx>() else { return };
+    let Some(boost) = ctx.boost.as_ref() else { return };
+    let conf = ctx.cfg.get();
+
+    let playing = np.is_some_and(|np| np.state == media::PlaybackState::Playing);
+    let exe = np
+        .filter(|_| playing && conf.boost.enabled)
+        .and_then(|np| audio::session::find_by_display_name(&np.source))
+        .map(|(exe, _)| exe);
+
+    boost.apply(exe.as_deref(), playing, conf.boost.enabled, conf.boost.settings());
+}
+
+/// Scale what every window draws.
+///
+/// Separate from the island's own geometry: that decides how big the capsule's
+/// *window* is, this decides how big its contents are. Both read `ui_scale`, and
+/// they have to move together or the capsule's text stops fitting the capsule.
+pub fn apply_zoom(app: &tauri::AppHandle, ui_scale: f32) {
+    let factor = f64::from(ui_scale).clamp(0.75, 2.0);
+    for (label, window) in app.webview_windows() {
+        if let Err(e) = window.set_zoom(factor) {
+            tracing::debug!("could not zoom {label}: {e}");
+        }
+    }
+}
+
+/// Show the settings window, creating it the first time.
+///
+/// Deliberately not declared in `tauri.conf.json`: a window listed there is
+/// created at startup even with `visible: false`, and a second WebView2 costs
+/// tens of megabytes to sit unread behind a menu item nobody has clicked.
+/// Closing it destroys it and gives that back, so this is the whole lifecycle.
+pub fn open_settings(app: &tauri::AppHandle) {
+    if let Some(existing) = app.get_webview_window(SETTINGS) {
+        let _ = existing.unminimize();
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return;
+    }
+
+    let built = tauri::WebviewWindowBuilder::new(
+        app,
+        SETTINGS,
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title("Lumen Settings")
+    .inner_size(940.0, 680.0)
+    .min_inner_size(760.0, 540.0)
+    // Its own chrome, so it can be the same glass object as the capsule. The
+    // transparency is what lets the rounded corners actually be round.
+    .decorations(false)
+    .transparent(true)
+    .resizable(true)
+    .center()
+    .build();
+
+    match built {
+        Ok(window) => {
+            if let Some(ctx) = app.try_state::<Ctx>() {
+                let _ = window.set_zoom(f64::from(ctx.cfg.get().ui_scale).clamp(0.75, 2.0));
+            }
+            let _ = window.set_focus();
+        }
+        Err(e) => tracing::warn!("could not open settings: {e}"),
+    }
+}
+
 fn build_tray(
     app: &tauri::App,
     policy: Arc<Policy>,
     cfg: Arc<ConfigStore>,
 ) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show now", true, None::<&str>)?;
-    let open_cfg = MenuItem::with_id(
-        app,
-        "config",
-        "Open settings file",
-        cfg.path().is_some(),
-        None::<&str>,
-    )?;
-    let share = MenuItem::with_id(app, "share", "Copy share card", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Lumen", true, None::<&str>)?;
+    let conf = cfg.get();
+
+    // Four items, and every one of them does something the settings window
+    // cannot. Toggles that also live in Settings used to sit here too, which
+    // meant two places to change lyrics, spectrum, smart pause and autostart —
+    // and two places to keep in step. The window owns those now.
+    let lang = i18n::Resolved::of(conf.language);
+    let text = |key| i18n::tray(lang, key);
+
+    let show = MenuItem::with_id(app, "show", text(i18n::Key::Show), true, None::<&str>)?;
+    let settings =
+        MenuItem::with_id(app, "settings", text(i18n::Key::Settings), true, None::<&str>)?;
+    let share = MenuItem::with_id(app, "share", text(i18n::Key::Share), true, None::<&str>)?;
+
+    let quit = MenuItem::with_id(app, "quit", text(i18n::Key::Quit), true, None::<&str>)?;
+
     let menu = Menu::with_items(
         app,
-        &[&show, &share, &open_cfg, &PredefinedMenuItem::separator(app)?, &quit],
+        &[&show, &share, &settings, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
 
     let tooltip = match cfg.path() {
-        Some(p) => format!("Lumen — settings: {}", p.display()),
-        None => "Lumen — settings are not persisted (no writable location)".to_owned(),
+        Some(p) => format!("{} {}", text(i18n::Key::TooltipAt), p.display()),
+        None => text(i18n::Key::TooltipNone).to_owned(),
     };
 
     // A dedicated mark rather than the application icon.
@@ -487,14 +687,7 @@ fn build_tray(
             "share" => {
                 let _ = app.emit(ipc::EVT_SHARE_REQUEST, ());
             }
-            "config" => {
-                if let Some(path) = cfg.path() {
-                    // `/select,` opens Explorer with the file highlighted.
-                    let _ = std::process::Command::new("explorer")
-                        .arg(format!("/select,{}", path.display()))
-                        .spawn();
-                }
-            }
+            "settings" => open_settings(app),
             "quit" => app.exit(0),
             _ => {}
         })

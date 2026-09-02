@@ -45,6 +45,7 @@ use windows::{
         Media::Audio::{
             EDataFlow, ERole, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator,
             ISimpleAudioVolume, MMDeviceEnumerator, eConsole, eRender,
+            Endpoints::IAudioMeterInformation,
         },
         System::{
             Com::{CLSCTX_ALL, CoCreateInstance},
@@ -89,6 +90,101 @@ pub fn exe_path(pid: u32) -> Option<String> {
         let _ = CloseHandle(handle);
         ok.ok()?;
         Some(String::from_utf16_lossy(&buf[..len as usize]).to_lowercase())
+    }
+}
+
+/// Current peak level and mute state of `exe`'s first session.
+///
+/// Only used by tests, which is exactly what it is for: "is this application
+/// actually making sound right now" is otherwise unanswerable from outside.
+pub fn peak_and_mute(exe: &str) -> Option<(f32, bool)> {
+    unsafe {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let device = enumerator
+            .GetDefaultAudioEndpoint(EDataFlow(eRender.0), ERole(eConsole.0))
+            .ok()?;
+        let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None).ok()?;
+        let list = manager.GetSessionEnumerator().ok()?;
+
+        for i in 0..list.GetCount().unwrap_or(0) {
+            let Ok(control) = list.GetSession(i) else { continue };
+            let Ok(control2) = control.cast::<IAudioSessionControl2>() else { continue };
+            let Ok(pid) = control2.GetProcessId() else { continue };
+            if exe_path(pid).as_deref() != Some(exe) {
+                continue;
+            }
+            let peak = control
+                .cast::<IAudioMeterInformation>()
+                .and_then(|m| m.GetPeakValue())
+                .unwrap_or(0.0);
+            let muted = control
+                .cast::<ISimpleAudioVolume>()
+                .and_then(|v| v.GetMute())
+                .map(|m| m.as_bool())
+                .unwrap_or(false);
+            return Some((peak, muted));
+        }
+        None
+    }
+}
+
+/// A process id belonging to `exe`'s audio, or `None` when it is playing none.
+///
+/// Any one of them: process loopback captures the target's whole process tree,
+/// and a browser's audio pids are siblings under the same parent, so whichever
+/// is found first leads to the same audio.
+pub fn any_pid(exe: &str) -> Option<u32> {
+    unsafe {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let device = enumerator
+            .GetDefaultAudioEndpoint(EDataFlow(eRender.0), ERole(eConsole.0))
+            .ok()?;
+        let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None).ok()?;
+        let list = manager.GetSessionEnumerator().ok()?;
+
+        for i in 0..list.GetCount().unwrap_or(0) {
+            let Ok(control) = list.GetSession(i) else { continue };
+            let Ok(control2) = control.cast::<IAudioSessionControl2>() else { continue };
+            let Ok(pid) = control2.GetProcessId() else { continue };
+            if exe_path(pid).as_deref() == Some(exe) {
+                return Some(pid);
+            }
+        }
+        None
+    }
+}
+
+/// The application currently making the most noise, as `(exe path, pid)`.
+///
+/// Peak level rather than "is a session active": several applications keep an
+/// active session open having played nothing for hours, and a silent one is
+/// never the answer to "what is playing".
+pub fn loudest_session() -> Option<(String, u32)> {
+    unsafe {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let device = enumerator
+            .GetDefaultAudioEndpoint(EDataFlow(eRender.0), ERole(eConsole.0))
+            .ok()?;
+        let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None).ok()?;
+        let list = manager.GetSessionEnumerator().ok()?;
+
+        let mut best: Option<(String, u32, f32)> = None;
+        for i in 0..list.GetCount().unwrap_or(0) {
+            let Ok(control) = list.GetSession(i) else { continue };
+            let Ok(control2) = control.cast::<IAudioSessionControl2>() else { continue };
+            let Ok(pid) = control2.GetProcessId() else { continue };
+            let Some(exe) = exe_path(pid) else { continue };
+            let Ok(meter) = control.cast::<IAudioMeterInformation>() else { continue };
+            let Ok(peak) = meter.GetPeakValue() else { continue };
+            if best.as_ref().is_none_or(|(_, _, loudest)| peak > *loudest) {
+                best = Some((exe, pid, peak));
+            }
+        }
+
+        best.filter(|(_, _, peak)| *peak > 0.0).map(|(exe, pid, _)| (exe, pid))
     }
 }
 

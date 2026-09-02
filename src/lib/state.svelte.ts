@@ -146,7 +146,7 @@ class Island {
    */
   lyricAt(clock: number): { text: string; elapsed: number; duration: number } | null {
     if (this.lyrics.length === 0) return null;
-    const at = this.positionAt(clock);
+    const at = this.positionAt(clock) - this.lyricOffset;
 
     let lo = 0;
     let hi = this.lyrics.length - 1;
@@ -181,10 +181,22 @@ class Island {
     };
   }
 
+  /**
+   * The user's own timing correction, in seconds.
+   *
+   * Positive shows the words later. Applied here, at the moment a line is
+   * chosen, rather than to the lines when they arrive: that way dragging the
+   * slider moves the lyrics against the song that is already playing, which is
+   * the only way to actually find the right value.
+   */
+  get lyricOffset(): number {
+    return (this.config?.lyrics?.offsetMs ?? 0) / 1000;
+  }
+
   /** When the line active at `clock` gives way to the next one, in seconds. */
   nextLyricBoundary(clock: number): number | null {
     if (this.lyrics.length === 0) return null;
-    const at = this.positionAt(clock);
+    const at = this.positionAt(clock) - this.lyricOffset;
     const next = this.lyrics.find((l) => l.atSec > at);
     return next ? next.atSec - at : null;
   }

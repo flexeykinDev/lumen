@@ -12,6 +12,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = ["codegen"] }
 
+# Serve the frontend from the binary instead of from the Vite dev server.
+#
+# This is the switch that decides where a window's HTML comes from, and it is a
+# *feature*, not a profile: without it even a `--release` build asks
+# `http://localhost:1420` for every page and shows ERR_CONNECTION_REFUSED when
+# nothing is listening there. `cargo tauri build` turns it on; a bare
+# `cargo build --release` does not, so it is on by default here — a binary that
+# needs a dev server is the exception, and `--no-default-features` asks for it.
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 anyhow = "1.0.104"
 base64 = "0.23.1"
@@ -25,8 +37,11 @@ tokio = { version = "1.53.1", features = ["rt-multi-thread", "sync", "time", "ma
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 window-vibrancy = "0.8.0"
-windows = { version = "0.62.2", features = ["Foundation_Collections", "Media_Control", "Storage_Streams", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Networking_WinHttp", "Win32_Media_Audio_Endpoints", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_LibraryLoader", "Win32_System_Ole", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WinRT", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62.2", features = ["Foundation_Collections", "Media_Control", "Storage_Streams", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Networking_WinHttp", "Win32_Media_Audio_Endpoints", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_LibraryLoader", "Win32_System_Ole", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WinRT", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-collections = "0.3.2"
+# Named directly because `#[implement]` expands to `windows_core::` paths, which
+# only resolve if the crate is in scope by that name.
+windows-core = "0.62.2"
 windows-future = "0.3.2"
 
 # Size is a hard requirement (<10 MB portable exe), so the SHIPPING profile

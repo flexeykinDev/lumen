@@ -1,5 +1,8 @@
 //! The smallest HTTPS GET that will do, over WinHTTP.
 //!
+//! Shared by the two features that reach the network at all — lyrics lookup and
+//! Discord cover art — both of which are off until asked for.
+//!
 //! WinHTTP ships with Windows and uses the system certificate store, so this
 //! adds no TLS stack to a binary with a 10 MB budget. The cost is a handful of
 //! handles to close in the right order, which is what `Session` is for.

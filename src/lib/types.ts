@@ -57,21 +57,108 @@ export interface PlacementEvent {
   mirrored: boolean;
 }
 
+export type DockMode =
+  | "taskbar-center"
+  | "bottom-left"
+  | "bottom-right"
+  | "top-left"
+  | "top-right"
+  | "free";
+
+/** One Discord presence button. `url` may carry `{title}`, `{artist}`, `{album}`. */
+export interface PresenceButton {
+  enabled: boolean;
+  label: string;
+  url: string;
+}
+
+export interface DiscordConfig {
+  enabled: boolean;
+  /**
+   * `listening` renders a progress bar; `playing` renders buttons. Discord
+   * draws buttons on a Playing activity only, so the two are exclusive.
+   */
+  activity: "listening" | "playing";
+  applicationId: string;
+  showWhilePaused: boolean;
+  showArtist: boolean;
+  showAlbum: boolean;
+  showSource: boolean;
+  showTimestamps: boolean;
+  /** Looks the cover up online — the only part of presence that uses the network. */
+  albumArt: boolean;
+  /** Players never published, by the name shown on the capsule. */
+  hiddenSources: string[];
+  buttons: PresenceButton[];
+}
+
+export interface MouseConfig {
+  enabled: boolean;
+  taskbarWheelVolume: boolean;
+  taskbarWheelPerApp: boolean;
+  taskbarWheelOverFullscreen: boolean;
+  middleClickHides: boolean;
+  altMiddleQuits: boolean;
+  taskbarCloseButton: "none" | "middle" | "right";
+}
+
+/** Mirrors `config::Config`. serde renames to camelCase on the wire. */
 export interface AppConfig {
-  shape: "pill" | "native";
+  /** `auto` follows the Windows UI language. */
+  language: "auto" | "en" | "ru";
+  /** Interface zoom on top of the monitor's DPI scale. 1 = as Windows says. */
+  uiScale: number;
+  /** Volume past 100% and bass lift, by processing the app's audio. */
+  boost: { enabled: boolean; gain: number; bassDb: number };
+  /** Clawd, the pixel pet in the collapsed capsule. Easter egg, off by default. */
+  pet: { enabled: boolean };
+  /** False until the first-run tour has been seen, once, ever. */
+  onboarded: boolean;
+  shape: "round" | "square";
   backdrop: "mica" | "acrylic" | "auto";
   theme: "dark" | "light" | "system";
   monitor: "primary" | "cursor";
-  /** Gap in px between the island's bottom edge and the taskbar's top edge. */
+  dock: DockMode;
+  /** Gap in px between the island's docked edge and the screen edge. */
   taskbarGap: number;
+  /** Inset from the side for the corner docks, in logical px. */
+  edgeMargin: number;
+  freeX: number;
+  freeY: number;
+  /** How near an anchor a drop must land to snap. 0 disables snapping. */
+  snapThreshold: number;
   autoExpandOnTrackChange: boolean;
   autoExpandMs: number;
   showWhilePaused: boolean;
   /** Scalar units moved per wheel notch; 0.02 = 2%. */
   volumeStep: number;
+  hotkeys: {
+    playPause: string;
+    next: string;
+    previous: string;
+    cycleSession: string;
+    volumeUp: string;
+    volumeDown: string;
+    repeat: string;
+    toggleVisible: string;
+    togglePinned: string;
+  };
+  mouse: MouseConfig;
+  discord: DiscordConfig;
+  smartPause: { enabled: boolean; resumeOnUnlock: boolean };
+  lyrics: {
+    enabled: boolean;
+    geniusFallback: boolean;
+    /** Shifts every line; positive shows them later. */
+    offsetMs: number;
+    /** An extra shift for guessed timings only. */
+    estimatedOffsetMs: number;
+  };
   /** The live spectrum. The only feature here that costs CPU while it runs. */
-  spectrum?: { enabled: boolean };
-  hotkeys: { playPause: string; next: string; previous: string };
+  spectrum: { enabled: boolean };
+  /** Hold the panel open instead of collapsing back to the pill. */
+  alwaysExpanded: boolean;
+  startWithWindows: boolean;
 }
 
 export interface VolumeState {

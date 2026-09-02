@@ -86,6 +86,8 @@ pub enum TransportCmd {
     Previous,
     /// Absolute position in seconds from the start of the track.
     Seek(f64),
+    /// Step the player's repeat mode: none, whole list, one track, and back.
+    CycleRepeat,
 }
 
 #[derive(Debug, Clone)]
@@ -157,7 +159,7 @@ pub fn pretty_source(aumid: &str) -> String {
     // `unwrap_or(s)` matters for the degenerate case where *every* segment looks
     // like a hash (a real app literally named "deadbeefcafe"): better to show
     // the odd name than nothing.
-    let s = s.split('.').filter(|seg| !seg.is_empty() && !is_opaque(seg)).next_back().unwrap_or(s);
+    let s = s.rsplit('.').find(|seg| !seg.is_empty() && !is_opaque(seg)).unwrap_or(s);
 
     if s.is_empty() {
         return "Unknown".into();

@@ -47,6 +47,20 @@ pub enum Theme {
     System,
 }
 
+/// Interface language.
+///
+/// Covers the settings window and the tray menu; there is no other text in the
+/// product. `Auto` reads the system language, which is right for almost
+/// everyone — the explicit values are for a machine whose Windows is in one
+/// language and whose owner is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    Auto,
+    En,
+    Ru,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MonitorPick {
@@ -82,6 +96,17 @@ pub struct Hotkeys {
     pub previous: String,
     /// Switch which media source the island follows. Empty string disables it.
     pub cycle_session: String,
+    /// Volume up and down for the playing application — the keyboard version of
+    /// the taskbar wheel, for keyboards without media keys or where Windows'
+    /// own volume keys move the master instead of the app.
+    pub volume_up: String,
+    pub volume_down: String,
+    /// Cycle the player's repeat mode: off, whole list, one track.
+    pub repeat: String,
+    /// Put the capsule away, or bring it back.
+    pub toggle_visible: String,
+    /// Hold the full panel open instead of letting it collapse.
+    pub toggle_pinned: String,
 }
 
 impl Default for Hotkeys {
@@ -97,6 +122,14 @@ impl Default for Hotkeys {
             // Ctrl+F6 sits on the play/pause key: same hand position, and the
             // modifier keeps it clear of the bare function keys other apps use.
             cycle_session: "Ctrl+F6".into(),
+            // Unbound by default. These are additions to a keyboard that
+            // already has media keys, and every default is a key taken away
+            // from something else the user may already have bound.
+            volume_up: String::new(),
+            volume_down: String::new(),
+            repeat: String::new(),
+            toggle_visible: String::new(),
+            toggle_pinned: String::new(),
         }
     }
 }
@@ -182,20 +215,170 @@ impl Default for Mouse {
 /// default: presence is published *as* a Discord application, and the name and
 /// artwork people will see belong to whoever created it. A shared id baked in
 /// here would show someone else's branding on your profile.
+/// Which activity type the presence is published as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActivityKind {
+    /// "Listening to …", with the progress bar. No buttons.
+    Listening,
+    /// "Playing …", which is the only type whose buttons Discord draws.
+    Playing,
+}
+
+impl ActivityKind {
+    /// The number Discord's RPC expects.
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Playing => 0,
+            Self::Listening => 2,
+        }
+    }
+
+    /// Whether Discord will render buttons for this type.
+    pub fn shows_buttons(self) -> bool {
+        matches!(self, Self::Playing)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Discord {
     pub enabled: bool,
+    /// How the presence is announced, and — the part that matters in practice —
+    /// whether the buttons render.
+    ///
+    /// Discord draws presence buttons for a *Playing* activity. On a Listening
+    /// activity the client shows the progress bar and the album art but drops
+    /// the buttons, so the two cannot both be had at once. Listening reads
+    /// better for music and is the default; anyone who wants the buttons can
+    /// take the trade.
+    pub activity: ActivityKind,
     /// Client id from <https://discord.com/developers/applications>. The
     /// application's *name* is what renders as "Listening to …".
     pub application_id: String,
     /// Keep the presence up while paused, rather than clearing it.
     pub show_while_paused: bool,
+    /// The second line: who is playing. Off publishes the title alone.
+    pub show_artist: bool,
+    /// Album name as the hover text on the large image.
+    pub show_album: bool,
+    /// Name the player ("Listening via Lumen · Spotify") rather than Lumen alone.
+    pub show_source: bool,
+    /// The elapsed/remaining clock. Discord animates this itself, so it keeps
+    /// running even between our updates.
+    pub show_timestamps: bool,
+    /// Look the cover up online and show it as the presence image.
+    ///
+    /// Off by default because it is a network call, like [`Lyrics`]: Discord
+    /// renders an image by URL or by asset key, and SMTC hands the cover over as
+    /// *bytes*. Turning this on sends the artist and title to Apple's public
+    /// iTunes Search endpoint to find a URL for the same artwork.
+    pub album_art: bool,
+    /// Sources that are never published — by the name shown on the capsule,
+    /// e.g. `"Firefox"`. A blocklist rather than an allowlist so a newly
+    /// installed player does not silently go missing from your profile.
+    pub hidden_sources: Vec<String>,
+    /// Up to two link buttons under the presence.
+    ///
+    /// Note Discord does not draw these on your *own* profile — only other
+    /// people see them, which makes them look broken if you don't know.
+    pub buttons: Vec<PresenceButton>,
+}
+
+/// One presence button.
+///
+/// `url` may carry `{title}`, `{artist}` and `{album}`, each percent-encoded on
+/// substitution — that is what turns a fixed link into "find *this* track".
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PresenceButton {
+    pub enabled: bool,
+    /// Discord's limit is 32 characters; longer labels are truncated.
+    pub label: String,
+    pub url: String,
+}
+
+impl Discord {
+    /// Whether presence should be published for a given player.
+    pub fn publishes(&self, source: &str) -> bool {
+        !self.hidden_sources.iter().any(|hidden| hidden.eq_ignore_ascii_case(source.trim()))
+    }
 }
 
 impl Default for Discord {
     fn default() -> Self {
-        Self { enabled: true, application_id: String::new(), show_while_paused: false }
+        Self {
+            enabled: true,
+            activity: ActivityKind::Listening,
+            application_id: String::new(),
+            show_while_paused: false,
+            show_artist: true,
+            show_album: true,
+            show_source: true,
+            show_timestamps: true,
+            album_art: false,
+            hidden_sources: Vec::new(),
+            buttons: vec![
+                PresenceButton {
+                    enabled: true,
+                    label: "Find this track".into(),
+                    url: "https://www.youtube.com/results?search_query={artist}+{title}".into(),
+                },
+                PresenceButton {
+                    enabled: false,
+                    label: "Get Lumen".into(),
+                    url: "https://github.com/".into(),
+                },
+            ],
+        }
+    }
+}
+
+/// Clawd, the pixel pet.
+///
+/// An easter egg: a small character that dances in the collapsed capsule while
+/// music plays. Off by default — a widget that puts a cartoon on your taskbar
+/// without being asked is a different product from the one people installed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Pet {
+    pub enabled: bool,
+}
+
+/// Volume boost past 100%, and bass boost.
+///
+/// **Off by default.** Unlike every other switch here, this one changes how
+/// your audio reaches the speakers: Lumen captures the playing application,
+/// mutes it, and renders a processed copy. That is the only way past Windows'
+/// 100% ceiling from user space — see `audio::boost` — and it has real costs,
+/// about 30 ms of added latency and CPU for as long as it runs.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Boost {
+    pub enabled: bool,
+    /// Linear gain. 1.0 is untouched; 3.0 is the practical limit before a
+    /// limiter is doing more work than the music.
+    pub gain: f32,
+    /// Low-shelf lift below 120 Hz, in decibels.
+    pub bass_db: f32,
+}
+
+impl Default for Boost {
+    fn default() -> Self {
+        Self { enabled: false, gain: 1.0, bass_db: 0.0 }
+    }
+}
+
+impl Boost {
+    /// The settings the engine takes, clamped to what it can do sensibly.
+    ///
+    /// Clamped here rather than trusted from the file: this config is editable
+    /// by hand, and a gain of 50 would be a wall of limiter.
+    pub fn settings(&self) -> crate::audio::boost::Settings {
+        crate::audio::boost::Settings {
+            gain: self.gain.clamp(0.5, 3.0),
+            bass_db: self.bass_db.clamp(-12.0, 12.0),
+        }
     }
 }
 
@@ -215,6 +398,15 @@ pub struct Lyrics {
     /// has no lyrics API, so this reads their web page and will break whenever
     /// that page changes. The timings it produces are guesses.
     pub genius_fallback: bool,
+    /// Shift *every* line by this many milliseconds, estimated or not.
+    ///
+    /// Separate from `estimated_offset_ms` because it corrects a different
+    /// thing: this is for a lyric file that is simply early or late against
+    /// this particular recording — a remaster, a different release, a source
+    /// whose timings were made against another master. Applied when the line is
+    /// chosen rather than when it is fetched, so the slider moves the words
+    /// while the song is playing. Negative shows them earlier.
+    pub offset_ms: i64,
     /// Shift every estimated line by this many milliseconds.
     ///
     /// Only affects guessed timings, never a real .lrc. Estimated lines drift
@@ -226,7 +418,7 @@ pub struct Lyrics {
 
 impl Default for Lyrics {
     fn default() -> Self {
-        Self { enabled: false, genius_fallback: true, estimated_offset_ms: 0 }
+        Self { enabled: false, genius_fallback: true, offset_ms: 0, estimated_offset_ms: 0 }
     }
 }
 
@@ -269,6 +461,13 @@ impl Default for SmartPause {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
+    pub language: Language,
+    /// Interface zoom, on top of the monitor's own DPI scale.
+    ///
+    /// Windows' scaling already keeps the capsule the same physical size across
+    /// displays. This is for the case that leaves — a 2K or 4K panel running at
+    /// 100%, where every correctly-sized interface is also a tiny one.
+    pub ui_scale: f32,
     pub shape: Shape,
     pub backdrop: BackdropPref,
     pub theme: Theme,
@@ -304,11 +503,32 @@ pub struct Config {
     pub smart_pause: SmartPause,
     pub lyrics: Lyrics,
     pub spectrum: SpectrumCfg,
+    pub boost: Boost,
+    pub pet: Pet,
+    /// Whether the first-run tour has been shown.
+    ///
+    /// Lives in the config rather than in the registry so that a portable copy
+    /// carries its own answer: the same exe on a USB stick introduces itself
+    /// once per machine it is set up on, not once per launch.
+    pub onboarded: bool,
+    /// Hold the panel open rather than collapsing it back to the pill.
+    ///
+    /// The capsule still hides when there is nothing playing: this decides the
+    /// state it settles into while it is up, not whether it is up.
+    pub always_expanded: bool,
+    /// Launch when Windows starts.
+    ///
+    /// Mirrored into HKCU\...\CurrentVersion\Run and reconciled at every
+    /// launch, because a portable exe moves and a stale entry silently stops
+    /// working. The registry is the source of truth; this is the intent.
+    pub start_with_windows: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            language: Language::Auto,
+            ui_scale: 1.0,
             shape: Shape::Round,
             backdrop: BackdropPref::Auto,
             theme: Theme::System,
@@ -329,6 +549,11 @@ impl Default for Config {
             smart_pause: SmartPause::default(),
             lyrics: Lyrics::default(),
             spectrum: SpectrumCfg::default(),
+            boost: Boost::default(),
+            pet: Pet::default(),
+            always_expanded: false,
+            onboarded: false,
+            start_with_windows: false,
         }
     }
 }
@@ -497,6 +722,90 @@ mod tests {
         // Forward compatibility: a config from a newer build must still load.
         let cfg: Config = serde_json::from_str(strip_bom("{\"somethingNew\":1}")).unwrap();
         assert_eq!(cfg.taskbar_gap, Config::default().taskbar_gap);
+    }
+
+    #[test]
+    fn a_config_from_an_older_build_gains_every_new_field() {
+        // Forward compatibility in the direction that actually happens: someone
+        // updates the exe and their existing file is missing everything added
+        // since. Every one of these must come back as its default rather than
+        // failing the parse and silently resetting the whole file.
+        let old = r#"{"shape":"round","taskbarGap":12,"showWhilePaused":false}"#;
+        let cfg: Config = serde_json::from_str(old).expect("an old config must still load");
+
+        assert_eq!(cfg.taskbar_gap, 12, "existing values must survive");
+        assert!(!cfg.show_while_paused);
+        assert_eq!(cfg.language, Language::Auto);
+        assert_eq!(cfg.ui_scale, 1.0);
+        assert!(!cfg.boost.enabled);
+        assert!(!cfg.pet.enabled);
+        assert!(!cfg.onboarded);
+        assert_eq!(cfg.discord.activity, ActivityKind::Listening);
+        assert_eq!(cfg.lyrics.offset_ms, 0);
+        assert!(cfg.hotkeys.repeat.is_empty());
+    }
+
+    #[test]
+    fn hand_written_extremes_are_clamped_rather_than_obeyed() {
+        // This file is editable by hand, so every number in it is untrusted.
+        let wild = r#"{"boost":{"enabled":true,"gain":500.0,"bassDb":-99.0}}"#;
+        let cfg: Config = serde_json::from_str(wild).unwrap();
+        let settings = cfg.boost.settings();
+        assert_eq!(settings.gain, 3.0, "a gain of 500 is a wall of limiter");
+        assert_eq!(settings.bass_db, -12.0);
+    }
+
+    #[test]
+    fn a_config_survives_a_round_trip_through_the_file_format() {
+        // Serialising and re-reading must produce the same settings; a field
+        // that serialises under one name and deserialises under another looks
+        // exactly like a setting that will not save.
+        let mut cfg = Config::default();
+        cfg.pet.enabled = true;
+        cfg.boost.gain = 2.25;
+        cfg.lyrics.offset_ms = -750;
+        cfg.hotkeys.toggle_pinned = "Ctrl+F8".into();
+        cfg.always_expanded = true;
+        cfg.ui_scale = 1.35;
+
+        let json = serde_json::to_string(&cfg).expect("serialise");
+        let back: Config = serde_json::from_str(&json).expect("deserialise");
+
+        assert!(back.pet.enabled);
+        assert_eq!(back.boost.gain, 2.25);
+        assert_eq!(back.lyrics.offset_ms, -750);
+        assert_eq!(back.hotkeys.toggle_pinned, "Ctrl+F8");
+        assert!(back.always_expanded);
+        assert_eq!(back.ui_scale, 1.35);
+    }
+
+    #[test]
+    fn the_wire_format_is_camel_case_as_the_renderer_expects() {
+        // The TypeScript side reads these names literally. A rename here with no
+        // matching change there is a setting that silently stops working.
+        let json = serde_json::to_string(&Config::default()).unwrap();
+        for key in [
+            "\"uiScale\"",
+            "\"alwaysExpanded\"",
+            "\"startWithWindows\"",
+            "\"bassDb\"",
+            "\"offsetMs\"",
+            "\"estimatedOffsetMs\"",
+            "\"togglePinned\"",
+            "\"toggleVisible\"",
+            "\"volumeUp\"",
+            "\"hiddenSources\"",
+        ] {
+            assert!(json.contains(key), "{key} missing from {json}");
+        }
+    }
+
+    #[test]
+    fn an_activity_that_draws_buttons_is_the_playing_one() {
+        assert!(ActivityKind::Playing.shows_buttons());
+        assert!(!ActivityKind::Listening.shows_buttons());
+        assert_eq!(ActivityKind::Playing.code(), 0);
+        assert_eq!(ActivityKind::Listening.code(), 2);
     }
 
     #[test]

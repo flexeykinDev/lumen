@@ -44,6 +44,11 @@ export const host = {
   setHover: (hovering: boolean) => invoke<void>("set_hover", { hovering }),
   getConfig: () => invoke<AppConfig>("get_config"),
   setConfig: (config: AppConfig) => invoke<AppConfig>("set_config", { config }),
+  /// Builds the settings window on first call, focuses it afterwards.
+  openSettings: () => invoke<void>("open_settings"),
+  /// Quit and start again, for the settings that are only read at startup.
+  /// Never resolves — the process is gone before a reply could arrive.
+  restart: () => invoke<void>("restart"),
 
   islandOrigin: () => invoke<[number, number]>("island_origin"),
   /// Suspends automatic placement for the duration of the gesture — otherwise a

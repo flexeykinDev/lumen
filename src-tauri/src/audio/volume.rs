@@ -93,7 +93,7 @@ pub struct VolumeControl {
     tx: Sender<Cmd>,
     state: Arc<RwLock<VolumeState>>,
     /// Notified after every applied change so the UI can show a readout.
-    on_change: Arc<RwLock<Option<Box<dyn Fn(VolumeState) + Send + Sync>>>>,
+    on_change: Sink,
     on_app_change: AppSink,
 }
 
@@ -101,8 +101,7 @@ impl VolumeControl {
     pub fn start() -> anyhow::Result<Arc<Self>> {
         let (tx, rx) = mpsc::channel::<Cmd>();
         let state = Arc::new(RwLock::new(VolumeState::default()));
-        let on_change: Arc<RwLock<Option<Box<dyn Fn(VolumeState) + Send + Sync>>>> =
-            Arc::new(RwLock::new(None));
+        let on_change: Sink = Arc::new(RwLock::new(None));
         let on_app_change: AppSink = Arc::new(RwLock::new(None));
 
         let me = Arc::new(Self {
@@ -210,6 +209,17 @@ impl Drop for VolumeControl {
 }
 
 type Sink = Arc<RwLock<Option<Box<dyn Fn(VolumeState) + Send + Sync>>>>;
+
+/// Append unless it is already there.
+///
+/// Coalescing a burst means every distinct request survives and every repeat
+/// collapses; the lists are two or three entries long, so a linear scan is the
+/// right structure.
+fn push_unique<T: PartialEq>(list: &mut Vec<T>, item: T) {
+    if !list.contains(&item) {
+        list.push(item);
+    }
+}
 type AppSink = Arc<RwLock<Option<Box<dyn Fn(AppVolumeState, bool) + Send + Sync>>>>;
 
 fn acquire() -> anyhow::Result<IAudioEndpointVolume> {
@@ -283,16 +293,10 @@ fn run(
                         None => apps.push((target, d)),
                     }
                 }
-                Some(Cmd::ToggleMuteApp(target)) => {
-                    if !app_toggles.contains(&target) {
-                        app_toggles.push(target);
-                    }
-                }
-                Some(Cmd::PublishByName(name)) => {
-                    if !publishes.contains(&name) {
-                        publishes.push(name);
-                    }
-                }
+                Some(Cmd::ToggleMuteApp(target)) => push_unique(&mut app_toggles, target),
+                // Deduplicated on the way in: a burst of identical requests
+                // should collapse into one publish, not one per message.
+                Some(Cmd::PublishByName(name)) => push_unique(&mut publishes, name),
                 None => {}
             }
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());

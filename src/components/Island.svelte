@@ -2,6 +2,7 @@
   import AlbumArt from "./AlbumArt.svelte";
   import Controls from "./Controls.svelte";
   import Marquee from "./Marquee.svelte";
+  import Clawd from "./Clawd.svelte";
   import Progress from "./Progress.svelte";
   import Volume from "./Volume.svelte";
   import { host } from "../lib/bridge";
@@ -78,6 +79,51 @@
     // timings can produce on a short track — cannot spin this into a busy loop.
     const id = setTimeout(() => (lyricEpoch += 1), Math.max(50, until * 1000));
     return () => clearTimeout(id);
+  });
+
+  // Fitting a whole lyric line into 286px.
+  //
+  // The artist line this replaces is a name, so it was styled to end in an
+  // ellipsis when it did not fit. A lyric ending in "…" is a different thing
+  // entirely: the words that got cut are the ones being sung. So instead the
+  // line is shrunk until it fits, down to a floor, and only wraps to a second
+  // line when even that is not enough.
+  //
+  // Measured with `scrollWidth`, once per line rather than per frame: reading
+  // it forces layout, and a lyric changes every few seconds.
+  const LYRIC_MAX = 11.5;
+  const LYRIC_MIN = 8.75;
+  let lyricEl = $state<HTMLElement | null>(null);
+  let lyricSize = $state(LYRIC_MAX);
+  let lyricWrapped = $state(false);
+
+  $effect(() => {
+    // Re-runs on every new line, and on a resize of the panel.
+    const text = lyric?.text;
+    const el = lyricEl;
+    if (!el || !text) return;
+
+    lyricSize = LYRIC_MAX;
+    lyricWrapped = false;
+
+    // Two passes at most: overflow scales down by the ratio that would make it
+    // fit, which lands within a rounding error of the right size in one step.
+    const fits = () => el.scrollWidth <= el.clientWidth + 1;
+    if (!fits()) {
+      const ratio = el.clientWidth / el.scrollWidth;
+      lyricSize = Math.max(LYRIC_MIN, LYRIC_MAX * ratio);
+    }
+  });
+
+  $effect(() => {
+    // A second pass after the shrink has been painted: if the smallest size
+    // still overflows, the line is genuinely long and wrapping is the only way
+    // to show all of it.
+    const el = lyricEl;
+    if (!el || !lyric?.text) return;
+    if (lyricSize <= LYRIC_MIN + 0.01 && el.scrollWidth > el.clientWidth + 1) {
+      lyricWrapped = true;
+    }
   });
 
   // One element that scales between the two layouts rather than two elements
@@ -362,6 +408,11 @@
       text={title}
       active={island.state === "collapsed" && island.playing && !showVolume}
     />
+    <!-- Easter egg, opt-in, and entirely self-contained: one component, one
+         config flag, no styles shared with anything here. -->
+    {#if island.config?.pet?.enabled}
+      <Clawd playing={island.playing && island.visible} />
+    {/if}
     <div class="pulse" class:beating={island.playing && island.visible}>
       <i></i><i></i><i></i><i></i>
     </div>
@@ -405,11 +456,14 @@
                rather than continuing the previous line's sweep. -->
           {#key lyric.text}
             <div
+              bind:this={lyricEl}
               class="artist lyric"
               class:estimated={island.lyricsEstimated}
+              class:wrapped={lyricWrapped}
               style:--sweep="{lyric.duration}s"
               style:--sweep-delay="{-lyric.elapsed}s"
               style:--sweep-state={island.playing ? "running" : "paused"}
+              style:font-size="{lyricSize}px"
             >
               {lyric.text}
             </div>
@@ -917,6 +971,10 @@
      blur creeping ahead of the words. */
   .artist.lyric {
     font-weight: 560;
+    /* Overrides the artist line's ellipsis: the fitting above guarantees the
+       whole line is on screen, and a truncated lyric is worse than a small one. */
+    text-overflow: clip;
+    line-height: 1.3;
     background-image: linear-gradient(
       90deg,
       var(--ink) var(--fill),
@@ -927,6 +985,21 @@
     color: transparent;
     animation: karaoke var(--sweep, 3s) linear var(--sweep-delay, 0s) 1 both;
     animation-play-state: var(--sweep-state, paused);
+  }
+
+  /* The overflow case: a line too long even at the smallest size wraps onto a
+     second row. The sweep is dropped with it — one horizontal gradient across a
+     two-line box would light both rows at once, which reads as wrong rather
+     than as karaoke. Whole words beat a pretty effect. */
+  .artist.lyric.wrapped {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    animation: none;
+    background-image: none;
+    color: var(--ink);
   }
 
   /* Estimated timings are a guess — plain lyrics spread evenly across the track

@@ -30,6 +30,7 @@ pub struct Line {
 /// its lyrics.
 pub fn parse(lrc: &str) -> Vec<Line> {
     let mut out: Vec<Line> = Vec::new();
+    let mut offset = 0.0;
 
     for raw in lrc.lines() {
         let mut rest = raw.trim();
@@ -41,10 +42,22 @@ pub fn parse(lrc: &str) -> Vec<Line> {
         // `close + 2`. Both offsets are byte indices, which is safe because the
         // brackets themselves are ASCII even when the content is not.
         while let Some(close) = rest.strip_prefix('[').and_then(|r| r.find(']')) {
-            match timestamp(&rest[1..=close]) {
+            let tag = &rest[1..=close];
+            match timestamp(tag) {
                 Some(sec) => stamps.push(sec),
-                // A metadata tag such as `[ar:Artist]`. Not a timestamp, and not
-                // a lyric either — stop reading tags and let the rest be text.
+                // `[offset:...]` is the one metadata tag that changes the
+                // timing rather than describing the song. Files that need it
+                // are files whose timestamps are known to be wrong by a fixed
+                // amount, so ignoring it is a guaranteed constant drift — the
+                // exact symptom of lyrics that run early or late all the way
+                // through a track.
+                None if offset_tag(tag).is_some() => {
+                    offset = offset_tag(tag).unwrap_or(0.0);
+                    break;
+                }
+                // Any other metadata tag, such as `[ar:Artist]`. Not a
+                // timestamp and not a lyric — stop reading tags and let the
+                // rest be text.
                 None => break,
             }
             rest = rest[close + 2..].trim_start();
@@ -61,8 +74,30 @@ pub fn parse(lrc: &str) -> Vec<Line> {
         }
     }
 
+    // Applied after the whole document is read, because the tag is allowed to
+    // appear anywhere in it — including after the lines it corrects.
+    if offset != 0.0 {
+        for line in &mut out {
+            line.at_sec = (line.at_sec - offset).max(0.0);
+        }
+    }
+
     out.sort_by(|a, b| a.at_sec.partial_cmp(&b.at_sec).unwrap_or(std::cmp::Ordering::Equal));
     out
+}
+
+/// `[offset:-500]` in milliseconds, as seconds to *subtract* from every stamp.
+///
+/// The sign follows the LRC convention rather than intuition: a positive offset
+/// shifts the lyrics earlier, so it comes off the timestamps.
+fn offset_tag(tag: &str) -> Option<f64> {
+    let (key, value) = tag.split_once(':')?;
+    if !key.trim().eq_ignore_ascii_case("offset") {
+        return None;
+    }
+    let ms: f64 = value.trim().trim_start_matches('+').parse().ok()?;
+    // A file claiming a minute of correction is a broken file, not a hint.
+    (ms.abs() <= 60_000.0).then_some(ms / 1000.0)
 }
 
 /// `mm:ss`, `mm:ss.xx` or `mm:ss.xxx` to seconds.
@@ -97,6 +132,91 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert!(lines.iter().all(|l| l.text == "chorus"));
         assert!((lines[2].at_sec - 130.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn an_offset_tag_shifts_every_line() {
+        // Positive shifts the words earlier, which is the LRC convention and
+        // the opposite of what the sign looks like it should do.
+        let lines = parse("[offset:+500]\n[00:10.00]a\n[00:20.00]b");
+        assert_eq!(lines[0].at_sec, 9.5);
+        assert_eq!(lines[1].at_sec, 19.5);
+
+        let later = parse("[offset:-750]\n[00:10.00]a");
+        assert_eq!(later[0].at_sec, 10.75);
+    }
+
+    #[test]
+    fn an_offset_tag_after_the_lines_still_applies() {
+        // The tag is allowed anywhere in the file, so it cannot be applied as
+        // the lines are read.
+        let lines = parse("[00:10.00]a\n[offset:+500]\n[00:20.00]b");
+        assert_eq!(lines[0].at_sec, 9.5);
+        assert_eq!(lines[1].at_sec, 19.5);
+    }
+
+    #[test]
+    fn a_nonsense_offset_is_ignored() {
+        // Neither a number nor a plausible correction; both would otherwise
+        // move every line somewhere useless.
+        assert_eq!(parse("[offset:soon]\n[00:10.00]a")[0].at_sec, 10.0);
+        assert_eq!(parse("[offset:900000]\n[00:10.00]a")[0].at_sec, 10.0);
+        // And a line may never be dragged before the start of the track.
+        assert_eq!(parse("[offset:+5000]\n[00:01.00]a")[0].at_sec, 0.0);
+    }
+
+    #[test]
+    fn hostile_input_produces_no_lines_rather_than_a_panic() {
+        // Community-written files, fetched over the network. Every one of these
+        // has to come back as "no lyrics" rather than take the app down.
+        for input in [
+            "",
+            "
+
+
+",
+            "[",
+            "[]",
+            "[[[[[[",
+            "[00:",
+            "[99999999999999:00.00]x",
+            "[-5:00.00]x",
+            "[00:99.00]x",
+            "[aa:bb.cc]x",
+            "no timestamps at all",
+            "[ti:Only metadata]",
+        ] {
+            let lines = parse(input);
+            assert!(
+                lines.iter().all(|l| l.at_sec.is_finite() && l.at_sec >= 0.0),
+                "{input:?} produced a nonsense timestamp: {lines:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_multi_byte_line_is_split_on_character_boundaries() {
+        // Byte indices into a string with Cyrillic or emoji in it will panic if
+        // the arithmetic is wrong, and lyrics are full of both.
+        let lines = parse("[00:12.00]Привет, мир 🎧
+[00:15.00]日本語のテキスト");
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "Привет, мир 🎧");
+        assert_eq!(lines[1].text, "日本語のテキスト");
+    }
+
+    #[test]
+    fn a_very_long_document_is_still_ordered() {
+        // Shuffled input, because LRC files are not required to be sorted and a
+        // binary search over unsorted lines silently shows the wrong words.
+        let mut doc = String::new();
+        for n in (0..500).rev() {
+            doc.push_str(&format!("[{:02}:{:02}.00]line {n}
+", n / 60, n % 60));
+        }
+        let lines = parse(&doc);
+        assert_eq!(lines.len(), 500);
+        assert!(lines.windows(2).all(|w| w[0].at_sec <= w[1].at_sec), "output is not ascending");
     }
 
     /// The trap: metadata tags are bracketed exactly like timestamps, and a

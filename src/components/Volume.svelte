@@ -39,20 +39,38 @@
     }
   }
 
-  const hintText =
-    navigator.language?.toLowerCase().startsWith("ru")
-      ? "Крутите колёсико мыши"
-      : "Scroll wheel to adjust volume";
+  const russian = navigator.language?.toLowerCase().startsWith("ru") ?? false;
 
+  const hintText = russian ? "Крутите колёсико мыши" : "Scroll wheel to adjust volume";
+
+  /// Asked for explicitly, so it can afford to say more. The modifiers match
+  /// `Island.onWheel`: Ctrl multiplies the step by five, Shift divides it by
+  /// four.
+  const detailText = russian
+    ? "Колесо · Ctrl — крупный шаг · Shift — точный"
+    : "Scroll · Ctrl for big steps · Shift for fine";
+
+  let detailed = $state(false);
   let showHint = $state(false);
   let hintSpent = $state(hintAlreadySeen());
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
 
   function offerHint() {
     if (hintSpent || showHint) return;
+    detailed = false;
     showHint = true;
     clearTimeout(hintTimer);
     hintTimer = setTimeout(() => (showHint = false), 1800);
+  }
+
+  /// The bar does not move on a click, and a control that ignores a click owes
+  /// an explanation. This one is deliberately *not* once-only: clicking it is a
+  /// question, and a question asked twice deserves the same answer.
+  function explain() {
+    detailed = true;
+    showHint = true;
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => (showHint = false), 3200);
   }
 
   function retireHint() {
@@ -85,7 +103,7 @@
        capsule, so anything positioned outside these bounds would be clipped by
        the window edge rather than overlaying the desktop. -->
   <div class="hint" class:on={showHint} role="status" aria-live="polite">
-    {showHint ? hintText : ""}
+    {showHint ? (detailed ? detailText : hintText) : ""}
   </div>
 
   <button
@@ -109,9 +127,20 @@
     </svg>
   </button>
 
-  <div class="bar" role="progressbar" aria-valuenow={pct} aria-valuemin="0" aria-valuemax="100">
-    <div class="fill" style:transform="scaleX({muted ? 0 : level.scalar})"></div>
-  </div>
+  <!-- A button around the readout rather than a slider: the level is changed by
+       the wheel, and a click here is someone looking for the control that is
+       not there. It answers instead of doing nothing. -->
+  <button type="button" class="bar" aria-label={detailText} onclick={explain}>
+    <div
+      class="track"
+      role="progressbar"
+      aria-valuenow={pct}
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
+      <div class="fill" style:transform="scaleX({muted ? 0 : level.scalar})"></div>
+    </div>
+  </button>
 
   <!-- Hidden until the group is hovered or the level moves. A permanently
        visible "100" is noise in a row this tight. -->
@@ -175,7 +204,18 @@
     opacity: 0.55;
   }
 
+  /* The button is only a hit target: it adds padding so a 3px bar is clickable
+     without making the bar itself any taller. */
   .bar {
+    display: block;
+    padding: 6px 0;
+    border: 0;
+    background: none;
+    cursor: help;
+    flex: none;
+  }
+
+  .track {
     position: relative;
     width: 50px;
     height: 3px;
@@ -183,11 +223,10 @@
     background: rgba(0, 0, 0, 0.28);
     box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.3);
     overflow: hidden;
-    flex: none;
     transition: height 160ms var(--ease);
   }
 
-  .volume:hover .bar {
+  .volume:hover .track {
     height: 4px;
   }
 

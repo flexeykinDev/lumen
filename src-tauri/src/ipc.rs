@@ -65,6 +65,9 @@ pub struct Ctx {
     /// The audio capture, alive only while the bars are on screen. `None` the
     /// rest of the time — the thread does not exist and the endpoint is closed.
     pub spectrum: std::sync::Mutex<Option<crate::spectrum::Spectrum>>,
+    /// Volume and bass boost. Holds an engine only while boost is on and
+    /// something is playing, so the cost is zero the rest of the time.
+    pub boost: Option<Arc<crate::audio::boost::Supervisor>>,
 }
 
 #[tauri::command]
@@ -201,7 +204,12 @@ pub fn volume_adjust(ctx: State<'_, Ctx>, delta: f32) {
 ///
 /// `None` when nothing is playing, or when the playing application is rendering
 /// no audio through the default endpoint.
-fn media_target(ctx: &Ctx) -> Option<crate::audio::volume::AppTarget> {
+/// The audio session belonging to whatever the capsule is showing.
+///
+/// Public because the hotkeys route through exactly the same rule as the island
+/// wheel: two ways to change the volume that disagreed about *whose* volume
+/// would be worse than either one alone.
+pub fn media_target(ctx: &Ctx) -> Option<crate::audio::volume::AppTarget> {
     let source = ctx.media.snapshot()?.source;
     let (exe, label) = crate::audio::session::find_by_display_name(&source)?;
     Some(crate::audio::volume::AppTarget { exe, label })
@@ -328,6 +336,30 @@ pub fn get_config(ctx: State<'_, Ctx>) -> Config {
     ctx.cfg.get()
 }
 
+/// Open the settings window, from anywhere that is not the tray.
+#[tauri::command]
+pub fn open_settings(ctx: State<'_, Ctx>) {
+    let app = ctx.app.clone();
+    // Window creation belongs on the main thread; a command runs on the async
+    // runtime, so hop rather than assume.
+    let _ = ctx.app.run_on_main_thread(move || crate::open_settings(&app));
+}
+
+/// Quit and start again.
+///
+/// Several settings are read once, at startup — the mouse hook, the hotkeys,
+/// the backdrop, the lyrics and presence services. Telling someone a change
+/// "needs a restart" and leaving them to find the tray, quit, and hunt for the
+/// exe is a poor end to an otherwise instant settings panel.
+#[tauri::command]
+pub fn restart(ctx: State<'_, Ctx>) {
+    let app = ctx.app.clone();
+    // `restart` never returns, so it must not run on the command's task: the
+    // reply would never be sent and the caller would hang until the process
+    // died under it.
+    let _ = ctx.app.run_on_main_thread(move || app.restart());
+}
+
 /// Persist a whole config and re-apply everything that can change live.
 ///
 /// Position, shape, theme and hotkeys take effect immediately. `backdrop` is the
@@ -342,6 +374,15 @@ pub fn set_config(ctx: State<'_, Ctx>, config: Config) -> Config {
     let stored = ctx.cfg.set(config);
     ctx.policy.island().apply_config(&stored);
 
+    // Windows owns this one, so the config is only the intent — write it through
+    // immediately, or the switch would appear to work and do nothing until the
+    // next launch reconciled it.
+    if crate::autostart::is_enabled() != stored.start_with_windows
+        && let Err(e) = crate::autostart::set(stored.start_with_windows)
+    {
+        tracing::warn!("could not change autostart: {e:#}");
+    }
+
     // `global-hotkey` registers against the message queue of the thread that
     // created the manager, so rebinding has to hop back to the main thread.
     let hotkeys = Arc::clone(&ctx.hotkeys);
@@ -349,6 +390,12 @@ pub fn set_config(ctx: State<'_, Ctx>, config: Config) -> Config {
     if let Err(e) = ctx.app.run_on_main_thread(move || hotkeys.rebind(&keys)) {
         tracing::warn!("could not rebind hotkeys: {e}");
     }
+
+    // The capsule's window is resized by the island from the same number; this
+    // is the other half, scaling what is drawn inside both windows.
+    crate::apply_zoom(&ctx.app, stored.ui_scale);
+    // Toggling boost has to take effect now, not at the next track change.
+    crate::apply_boost(&ctx.app, ctx.media.snapshot().as_ref());
 
     let _ = ctx.app.emit(EVT_CONFIG, &stored);
     stored
