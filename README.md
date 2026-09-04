@@ -94,13 +94,13 @@ passes `--no-default-features` so the dev server is used instead.
 ## Tests
 
 ```bash
-cd src-tauri && cargo test        # 130 host tests
+cd src-tauri && cargo test        # 197 host tests
 cargo clippy --all-targets        # clean
 npm run check                     # renderer types
 npm run check:motion              # host/renderer easing parity
 ```
 
-Seven tests are `#[ignore]`d because they need real audio playing or a real
+Eight tests are `#[ignore]`d because they need real audio playing or a real
 lock/unlock:
 
 ```bash
