@@ -283,7 +283,7 @@ impl Island {
         // Gaps are configured in logical pixels and scaled by the *destination*
         // monitor, so the island sits the same visual distance from the edge on
         // a 100% display and a 200% one.
-        let (gap, margin) = scaled_insets(conf, scale);
+        let (gap, margin) = insets_for(conf, &dock);
         let work = dock.work;
 
         let _ = work;
@@ -336,6 +336,32 @@ impl Island {
     pub fn origin(&self) -> (i32, i32) {
         let (anchor, size) = self.geometry.placement();
         anchor.origin(size)
+    }
+
+    /// Hand back the memory the WebView touched while it was on screen.
+    ///
+    /// `EmptyWorkingSet` moves this process's pages to the standby list. They
+    /// are not discarded — anything still needed is faulted straight back from
+    /// RAM — so the cost is a handful of soft faults on the next reveal and the
+    /// gain is a resident set that reflects an idle app rather than the peak of
+    /// the last panel it drew. WebView2 grows its working set steadily during
+    /// animation and never gives it back on its own.
+    ///
+    /// Called only when the capsule parks, which is exactly when there is
+    /// nothing to keep warm.
+    fn trim_working_set(&self) {
+        use windows::Win32::System::{
+            ProcessStatus::EmptyWorkingSet, Threading::GetCurrentProcess,
+        };
+        // Both the host and the WebView's own processes belong to this session,
+        // but only ours can be trimmed from here; the child processes trim
+        // themselves when Windows needs the pages.
+        let _ = unsafe { EmptyWorkingSet(GetCurrentProcess()) };
+    }
+
+    /// Put the capsule in, or out of, the always-on-top band.
+    pub fn set_topmost(&self, on: bool) {
+        self.geometry.set_topmost(on);
     }
 
     /// Whether the cursor is physically inside the capsule right now.
@@ -589,7 +615,7 @@ impl Island {
         self.dragging.store(false, Ordering::SeqCst);
 
         let dock = taskbar::dock_for(conf.monitor);
-        let (gap, margin) = scaled_insets(conf, dock.scale);
+        let (gap, margin) = insets_for(conf, &dock);
         let size = self.geometry.size();
 
         // Same clamp as the drag itself, in case a release arrives with a
@@ -687,6 +713,8 @@ impl Island {
     fn park(&self) {
         self.dragging.store(false, Ordering::SeqCst);
         self.geometry.set_anchor(park_anchor());
+        // Nothing is on screen now, so nothing needs to stay resident.
+        self.trim_working_set();
     }
 }
 
@@ -716,6 +744,23 @@ fn scaled_insets(conf: &Config, scale: f64) -> (i32, i32) {
         (conf.taskbar_gap as f64 * scale).round() as i32,
         (conf.edge_margin as f64 * scale).round() as i32,
     )
+}
+
+/// The insets, plus room for a taskbar that is hidden right now.
+///
+/// With auto-hide on, Windows hands out the whole screen as the work area — it
+/// reserves nothing for a bar that is not currently there. Docking against that
+/// puts the capsule exactly where the taskbar slides out to, and because the
+/// capsule is topmost and re-asserts itself every frame, it then sits *over* the
+/// revealed bar: the buttons are behind it, and the strip that triggers the
+/// reveal is covered by a window that is not the taskbar.
+///
+/// Reserving the bar's thickness permanently is the honest fix. The capsule sits
+/// a little higher than it would otherwise, and the taskbar behaves exactly as
+/// Windows intends whether it is out or not.
+fn insets_for(conf: &Config, dock: &taskbar::Dock) -> (i32, i32) {
+    let (gap, margin) = scaled_insets(conf, dock.scale);
+    (gap + taskbar::hidden_taskbar_inset(dock), margin)
 }
 
 fn anchor_for(conf: &Config, dock: &taskbar::Dock, gap: i32, margin: i32) -> Anchor {
@@ -985,7 +1030,7 @@ mod tests {
     fn dock_at(left: i32, top: i32, w: i32, h: i32, scale: f64) -> taskbar::Dock {
         use windows::Win32::Foundation::RECT;
         let work = RECT { left, top, right: left + w, bottom: top + h };
-        taskbar::Dock { work, monitor: work, taskbar: None, scale }
+        taskbar::Dock { work, monitor: work, taskbar: None, autohide: false, scale }
     }
 
     /// Resolve a mode to a window origin, the way `reposition` does.

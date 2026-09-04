@@ -50,6 +50,10 @@ pub struct RuntimeInfo {
     /// True when settings live beside the exe (fully portable).
     pub portable: bool,
     pub version: &'static str,
+    /// Which Windows this is, and which of the version-dependent features are
+    /// available on it. Shown in About so a report about the glass looking
+    /// wrong arrives with the answer already in it.
+    pub platform: String,
 }
 
 pub struct Ctx {
@@ -158,6 +162,33 @@ pub fn island_origin(ctx: State<'_, Ctx>) -> (i32, i32) {
 #[tauri::command]
 pub fn drag_start(ctx: State<'_, Ctx>) {
     ctx.policy.island().start_host_drag(Arc::clone(&ctx.cfg), ctx.app.clone());
+}
+
+/// Whether a desktop / Start-menu shortcut exists.
+///
+/// Returned as a pair so the settings window can show the real state rather
+/// than remembering what it last asked for — the file is the truth, and people
+/// delete shortcuts.
+#[tauri::command]
+pub fn shortcut_state() -> (bool, bool) {
+    use crate::shortcut::{Place, exists};
+    (exists(Place::Desktop), exists(Place::StartMenu))
+}
+
+/// Create or remove a shortcut. `place` is `desktop` or `start`.
+#[tauri::command]
+pub fn shortcut_set(place: String, on: bool) -> Result<(bool, bool), String> {
+    use crate::shortcut::{Place, create, remove};
+
+    let target = match place.as_str() {
+        "desktop" => Place::Desktop,
+        "start" => Place::StartMenu,
+        other => return Err(format!("unknown shortcut location {other:?}")),
+    };
+
+    let result = if on { create(target).map(|_| ()) } else { remove(target) };
+    result.map_err(|e| format!("{e:#}"))?;
+    Ok(shortcut_state())
 }
 
 /// Is the left mouse button down right now?
@@ -481,6 +512,10 @@ pub fn set_config(ctx: State<'_, Ctx>, config: Config) -> Config {
     crate::apply_zoom(&ctx.app, stored.ui_scale);
     // Toggling boost has to take effect now, not at the next track change.
     crate::apply_boost(&ctx.app, ctx.media.snapshot().as_ref());
+    // Same for the z-order mode and the OBS files: a switch that only applies
+    // to the *next* track is a switch that looks broken.
+    crate::window::zorder::Watcher::install(Arc::clone(ctx.policy.island()), stored.on_top);
+    crate::publish_obs(&ctx.app, ctx.media.snapshot().as_ref());
 
     let _ = ctx.app.emit(EVT_CONFIG, &stored);
     stored
@@ -493,6 +528,7 @@ impl RuntimeInfo {
             config_path: cfg.path().map(|p| p.display().to_string()),
             portable: cfg.origin() == Origin::Portable,
             version: env!("CARGO_PKG_VERSION"),
+            platform: crate::platform::summary(),
         }
     }
 }

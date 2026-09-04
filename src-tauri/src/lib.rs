@@ -15,10 +15,13 @@ pub mod ipc;
 pub mod lyrics;
 pub mod media;
 pub mod motion;
+pub mod platform;
 pub mod policy;
 pub mod net;
+pub mod obs;
 pub mod presence;
 pub mod share;
+pub mod shortcut;
 pub mod smart_pause;
 pub mod spectrum;
 pub mod stats;
@@ -60,6 +63,11 @@ pub fn run() {
     };
 
     tune_webview();
+
+    // Which Windows this is, and therefore which fallbacks are in play. First
+    // line of every log, because it is the first question worth asking about a
+    // report that says "the glass looks wrong".
+    tracing::info!("{}", platform::summary());
 
     let cfg = Arc::new(ConfigStore::load());
     // Reconciled every launch: a portable exe gets moved, and a Run entry
@@ -106,6 +114,8 @@ pub fn run() {
             ipc::island_origin,
             ipc::drag_start,
             ipc::pointer_pressed,
+            ipc::shortcut_state,
+            ipc::shortcut_set,
             ipc::drag_cancel,
             ipc::drag_to,
             ipc::drag_end,
@@ -138,6 +148,10 @@ pub fn run() {
 
                 let island = Island::attach(handle.clone(), window, Arc::clone(&cfg))?;
                 apply_zoom(&handle, cfg.get().ui_scale);
+                // Where the capsule sits in the stack, and — for "only above
+                // games" — a foreground hook that keeps it there.
+                window::zorder::Watcher::install(Arc::clone(&island), conf_on_top(&cfg));
+
                 let info = RuntimeInfo::build(island.backdrop_kind(), &cfg);
                 let policy = Policy::new(island, Arc::clone(&cfg));
 
@@ -417,6 +431,7 @@ fn pump_media(
         publish_app_volume(&app, &snapshot.source);
         apply_boost(&app, Some(&snapshot));
         observe_stats(&app, Some(&snapshot));
+        publish_obs(&app, Some(&snapshot));
         if let Some(p) = presence.as_ref() {
             p.update(for_discord(&snapshot, &discord));
         }
@@ -442,6 +457,7 @@ fn pump_media(
                             // and switching player moves the boost with it.
                             apply_boost(&app, Some(np));
                             observe_stats(&app, Some(np));
+                            publish_obs(&app, Some(np));
                             // One lookup per track: the service ignores repeats
                             // for anything it has already fetched.
                             if let Some(l) = lyrics.as_ref() {
@@ -464,6 +480,7 @@ fn pump_media(
                             let _ = app.emit(ipc::EVT_NOW_PLAYING, Option::<()>::None);
                             apply_boost(&app, None);
                             observe_stats(&app, None);
+                            publish_obs(&app, None);
                             if let Some(p) = presence.as_ref() {
                                 p.update(None);
                             }
@@ -595,6 +612,27 @@ fn install_mouse_hook(app: &tauri::AppHandle, cfg: Arc<ConfigStore>, policy: Arc
     }
 }
 
+/// Write the now-playing files for OBS, when that is switched on.
+///
+/// Same hook points as the boost and the history: a track change, a play/pause
+/// and the session vanishing are exactly the moments an overlay is wrong.
+fn publish_obs(app: &tauri::AppHandle, np: Option<&media::NowPlaying>) {
+    let Some(ctx) = app.try_state::<Ctx>() else { return };
+    let conf = ctx.cfg.get();
+    if !conf.obs.enabled {
+        return;
+    }
+    let Some(dir) = obs::folder(&conf.obs.folder, ctx.cfg.path()) else { return };
+
+    let files = obs::render(np);
+    let cover = conf
+        .obs
+        .write_cover
+        .then(|| np.and_then(|n| obs::cover_bytes(n.art_data_uri.as_deref())))
+        .flatten();
+    obs::write(&dir, &files, cover.as_deref());
+}
+
 /// Feed the listening history whatever the media backend just reported.
 ///
 /// Called from the same places as the boost: a track change, a play/pause, and
@@ -624,6 +662,11 @@ pub fn apply_boost(app: &tauri::AppHandle, np: Option<&media::NowPlaying>) {
         .map(|(exe, _)| exe);
 
     boost.apply(exe.as_deref(), playing, conf.boost.enabled, conf.boost.settings());
+}
+
+/// The configured z-order mode.
+fn conf_on_top(cfg: &ConfigStore) -> config::OnTop {
+    cfg.get().on_top
 }
 
 /// Scale what every window draws.

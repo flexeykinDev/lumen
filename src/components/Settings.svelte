@@ -75,7 +75,9 @@
 
   let tab = $state<Tab>("general");
   let cfg = $state<AppConfig | null>(null);
-  let info = $state<{ configPath: string | null; portable: boolean; version: string } | null>(null);
+  let info = $state<
+    { configPath: string | null; portable: boolean; version: string; platform: string } | null
+  >(null);
   let liveSources = $state<string[]>([]);
   let saved = $state(false);
   let update = $state<UpdateStatus | null>(null);
@@ -83,6 +85,8 @@
   let top = $state<TrackStat[]>([]);
   let artists = $state<[string, number, number][]>([]);
   let confirmingClear = $state(false);
+  /** `[desktop, startMenu]`, read from the filesystem rather than remembered. */
+  let shortcuts = $state<[boolean, boolean]>([false, false]);
   let checking = $state(false);
   let savedTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -167,6 +171,11 @@
     }
     // Once per opening of this window, and only if it is switched on.
     if (cfg.updates.check) void checkForUpdate();
+    try {
+      shortcuts = await host.shortcutState();
+    } catch {
+      shortcuts = [false, false];
+    }
   });
 
   /**
@@ -181,20 +190,64 @@
     lang = currentLanguage();
   }
 
-  async function patch(change: (c: AppConfig) => void) {
-    if (!cfg) return;
-    const next = structuredClone($state.snapshot(cfg)) as AppConfig;
-    change(next);
-    cfg = next;
+  // --- persistence ----------------------------------------------------------
+  //
+  // The panel updates instantly and the *file* is written on a trailing delay.
+  //
+  // Without the delay, dragging a slider sent one `set_config` per input event —
+  // dozens a second, each one a full write-then-rename of the config file, each
+  // one re-applying placement, hotkeys, zoom, boost and the OBS files, and each
+  // one echoing a config event back into every window. That is the "spamming a
+  // control glitches the UI" report: the capsule was being re-placed and
+  // re-rendered faster than it could finish either.
+
+  const SAVE_DELAY_MS = 120;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let inFlight = false;
+  let pending: AppConfig | null = null;
+
+  async function flush() {
+    if (inFlight || pending === null) return;
+    const next = pending;
+    pending = null;
+    inFlight = true;
     try {
-      cfg = await host.setConfig(next);
+      // The host echoes back what it stored, and that is what the panel adopts:
+      // the two differ whenever a value is clamped.
+      const stored = await host.setConfig(next);
+      // Unless something newer is already queued — adopting a stale answer
+      // over a live edit is exactly how a slider fights the hand dragging it.
+      if (pending === null) cfg = stored;
       saved = true;
       clearTimeout(savedTimer);
       savedTimer = setTimeout(() => (saved = false), 1400);
     } catch (e) {
       console.error("could not save settings", e);
+    } finally {
+      inFlight = false;
+      // Anything that arrived while this was in flight goes now.
+      if (pending !== null) void flush();
     }
   }
+
+  function patch(change: (c: AppConfig) => void) {
+    if (!cfg) return;
+    const next = structuredClone($state.snapshot(cfg)) as AppConfig;
+    change(next);
+    // The panel is updated immediately: a control that lags the hand is worse
+    // than one that saves a moment later.
+    cfg = next;
+    pending = next;
+
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void flush(), SAVE_DELAY_MS);
+  }
+
+  // A window closed mid-drag must still save what was in flight.
+  $effect(() => () => {
+    clearTimeout(saveTimer);
+    if (pending !== null) void flush();
+  });
 
   /** Every player worth offering a switch for, in a stable order. */
   const sourceList = $derived([
@@ -240,6 +293,16 @@
     { dir: "SouthWest" as const, css: "sw" },
     { dir: "SouthEast" as const, css: "se" },
   ];
+
+  /** Create or delete a shortcut, then re-read what is actually on disk. */
+  async function setShortcut(place: "desktop" | "start", on: boolean) {
+    try {
+      shortcuts = await host.shortcutSet(place, on);
+    } catch (e) {
+      console.error("shortcut failed", e);
+      shortcuts = await host.shortcutState();
+    }
+  }
 
   const button = (index: number): PresenceButton =>
     cfg?.discord.buttons[index] ?? { enabled: false, label: "", url: "" };
@@ -377,6 +440,28 @@
           </Row>
 
           <Row
+            label="Desktop shortcut"
+            description="A portable exe lives wherever it was dropped. This is how you find it again."
+          >
+            <Toggle
+              checked={shortcuts[0]}
+              label="Desktop shortcut"
+              onchange={(v) => setShortcut("desktop", v)}
+            />
+          </Row>
+
+          <Row
+            label="Add to the Start menu"
+            description="Puts Lumen in the app list and in search, from where Windows lets you pin it. Applications cannot pin themselves — that was removed from Windows deliberately."
+          >
+            <Toggle
+              checked={shortcuts[1]}
+              label="Add to the Start menu"
+              onchange={(v) => setShortcut("start", v)}
+            />
+          </Row>
+
+          <Row
             label="Always keep the panel open"
             description="Stays expanded instead of collapsing back to the pill. It still hides when nothing is playing — there is nothing to show."
           >
@@ -455,6 +540,95 @@
               <option value="auto">Auto</option>
               <option value="acrylic">Acrylic</option>
               <option value="mica">Mica</option>
+            </select>
+          </Row>
+
+          <Row
+            label="Panel"
+            description="System uses the Windows backdrop below. Solid is a flat colour — the one that looks the same on every Windows version. Transparent removes the panel and leaves the artwork and text floating, which is also what makes a clean OBS overlay."
+            restart
+          >
+            <select
+              value={cfg.appearance.surface}
+              aria-label="Panel"
+              onchange={(e) =>
+                patch(
+                  (c) =>
+                    (c.appearance.surface = e.currentTarget
+                      .value as AppConfig["appearance"]["surface"]),
+                )}
+            >
+              <option value="system">{tr("System")}</option>
+              <option value="solid">{tr("Solid colour")}</option>
+              <option value="clear">{tr("Transparent")}</option>
+            </select>
+          </Row>
+
+          <Row label="Panel opacity">
+            <div class="slider">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                disabled={cfg.appearance.surface === "clear"}
+                value={cfg.appearance.opacity}
+                aria-label="Panel opacity"
+                oninput={(e) =>
+                  patch((c) => (c.appearance.opacity = Number(e.currentTarget.value)))}
+              />
+              <span class="value">{Math.round(cfg.appearance.opacity * 100)}%</span>
+            </div>
+          </Row>
+
+          <Row label="Panel colour" description="The tint behind the glass. Auto follows the album art, like everything else in the capsule.">
+            <div class="swatches">
+              <button
+                type="button"
+                class="auto-swatch"
+                class:on={cfg.appearance.tint === "auto"}
+                onclick={() => patch((c) => (c.appearance.tint = "auto"))}
+              >
+                {tr("Auto")}
+              </button>
+              <input
+                class="picker"
+                type="color"
+                value={cfg.appearance.tint === "auto" ? "#7a8cff" : cfg.appearance.tint}
+                aria-label="Panel colour"
+                oninput={(e) => patch((c) => (c.appearance.tint = e.currentTarget.value))}
+              />
+            </div>
+          </Row>
+
+          <Row label="Corner radius">
+            <div class="slider">
+              <input
+                type="range"
+                min="0"
+                max="28"
+                step="1"
+                value={cfg.appearance.radius}
+                aria-label="Corner radius"
+                oninput={(e) => patch((c) => (c.appearance.radius = Number(e.currentTarget.value)))}
+              />
+              <span class="value">{cfg.appearance.radius}px</span>
+            </div>
+          </Row>
+
+          <Row
+            label="Above other windows"
+            description="Always keeps the capsule over everything, including full-screen games. Only over games stands it down while a game owns the screen — useful if it lands on your crosshair. Bind the hide/show hotkey either way."
+          >
+            <select
+              value={cfg.onTop}
+              aria-label="Above other windows"
+              onchange={(e) =>
+                patch((c) => (c.onTop = e.currentTarget.value as AppConfig["onTop"]))}
+            >
+              <option value="always">{tr("Always on top")}</option>
+              <option value="games">{tr("Except over games")}</option>
+              <option value="never">{tr("Never on top")}</option>
             </select>
           </Row>
 
@@ -1145,6 +1319,42 @@
         {/if}
       {:else if tab === "advanced"}
         <h2>{tr("Advanced")}</h2>
+        <h3>{tr("OBS and streaming")}</h3>
+        <p class="hint">{tr("hint.obs")}</p>
+        <section>
+          <Row
+            label="Write now-playing files"
+            description="Updated on a track change and at no other time."
+          >
+            <Toggle
+              checked={cfg.obs.enabled}
+              label="Write now-playing files"
+              onchange={(v) => patch((c) => (c.obs.enabled = v))}
+            />
+          </Row>
+          <Row label="Include the cover" description="cover.jpg, for an Image source.">
+            <Toggle
+              checked={cfg.obs.writeCover}
+              disabled={!cfg.obs.enabled}
+              label="Include the cover"
+              onchange={(v) => patch((c) => (c.obs.writeCover = v))}
+            />
+          </Row>
+          <Row label="Folder" description="Empty writes to an obs folder beside the settings file.">
+            <input
+              class="text"
+              type="text"
+              spellcheck="false"
+              placeholder={tr("beside the settings file")}
+              disabled={!cfg.obs.enabled}
+              value={cfg.obs.folder}
+              aria-label="OBS folder"
+              onchange={(e) => patch((c) => (c.obs.folder = e.currentTarget.value.trim()))}
+            />
+          </Row>
+        </section>
+
+        <h3>{tr("Geometry")}</h3>
         <p class="hint">{tr("hint.advanced")}</p>
         <section>
           <Row
@@ -1221,6 +1431,8 @@
               <dd>{info.version}</dd>
               <dt>{tr("Settings file")}</dt>
               <dd class="mono">{info.configPath ?? tr("not persisted")}</dd>
+              <dt>{tr("Windows")}</dt>
+              <dd>{info.platform}</dd>
               <dt>{tr("Mode")}</dt>
               <dd>
                 {info.portable

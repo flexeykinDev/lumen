@@ -23,6 +23,8 @@ export interface RuntimeInfo {
   configPath: string | null;
   portable: boolean;
   version: string;
+  /** Which Windows this is, and which version-dependent features it has. */
+  platform: string;
 }
 
 /** What the host found when it asked GitHub for the published version. */
@@ -95,6 +97,10 @@ export const host = {
   /// Whether the left button is physically down. Used to end a scrub whose
   /// `pointerup` never arrived.
   pointerPressed: () => invoke<boolean>("pointer_pressed"),
+  /// `[desktop, startMenu]` — read from the filesystem, not remembered.
+  shortcutState: () => invoke<[boolean, boolean]>("shortcut_state"),
+  shortcutSet: (place: "desktop" | "start", on: boolean) =>
+    invoke<[boolean, boolean]>("shortcut_set", { place, on }),
   /// Abandon a drag that will get no pointerup — the capsule was hidden, or
   /// capture was lost. Without this the host stays in drag mode forever.
   dragCancel: () => invoke<void>("drag_cancel"),

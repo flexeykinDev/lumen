@@ -169,6 +169,20 @@ export interface AppConfig {
   };
   /** One request per launch to a text file in the repository. */
   updates: { check: boolean };
+  /** Where the capsule sits in the window stack. */
+  onTop: "always" | "games" | "never";
+  appearance: {
+    surface: "system" | "solid" | "clear";
+    /** 0..1. `clear` ignores it — there is no panel to fade. */
+    opacity: number;
+    /** `#rrggbb` or `auto` to follow the album art. */
+    tint: string;
+    ink: string;
+    /** Corner radius in logical px. */
+    radius: number;
+  };
+  /** Now-playing written to files, for OBS. */
+  obs: { enabled: boolean; folder: string; writeCover: boolean };
   /** The live spectrum. The only feature here that costs CPU while it runs. */
   spectrum: { enabled: boolean };
   /** Hold the panel open instead of collapsing back to the pill. */

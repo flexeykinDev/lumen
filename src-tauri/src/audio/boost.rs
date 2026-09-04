@@ -113,6 +113,15 @@ pub struct Engine {
 impl Engine {
     /// Start boosting `exe`, which must currently be playing.
     pub fn start(exe: &str, settings: Settings) -> anyhow::Result<Self> {
+        // Per-process capture arrived in Windows 10 2004. Below that the
+        // activation fails with a bare COM error, which is a poor way to learn
+        // that a feature needs a newer Windows.
+        anyhow::ensure!(
+            crate::platform::supports_process_loopback(),
+            "volume boost needs Windows 10 version 2004 or newer (this is build {})",
+            crate::platform::build()
+        );
+
         let pid = session::any_pid(exe)
             .ok_or_else(|| anyhow!("{exe} is not playing anything to boost"))?;
 

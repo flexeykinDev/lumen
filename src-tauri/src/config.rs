@@ -372,6 +372,92 @@ pub enum Hat {
     Antenna,
 }
 
+/// Where the capsule sits in the window stack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OnTop {
+    /// Above everything, including full-screen games. The default, and the
+    /// reason a capsule above the taskbar is useful at all.
+    #[default]
+    Always,
+    /// Above ordinary windows, but stands down for a full-screen or borderless
+    /// game so it cannot sit over the crosshair.
+    Games,
+    /// An ordinary window: whatever is focused covers it.
+    Never,
+}
+
+/// How the capsule is painted.
+///
+/// Separate from `BackdropPref` because it is a different question: that one
+/// picks which *system* effect to ask DWM for, this one covers the cases where
+/// the answer is "none of them".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Surface {
+    /// Whatever `backdrop` asks DWM for: Acrylic, Mica, or a plain panel.
+    #[default]
+    System,
+    /// A flat colour, with no blur behind it. Cheapest, and the only one that
+    /// looks identical on every Windows version.
+    Solid,
+    /// No panel at all: the text and artwork float on the desktop. Also the
+    /// mode that makes a window capture in OBS look like an overlay rather than
+    /// a rectangle.
+    Clear,
+}
+
+/// Colours and opacity, on top of the system backdrop.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Appearance {
+    pub surface: Surface,
+    /// Panel opacity, 0..=1. Applies to `solid` and to the system backdrops;
+    /// `clear` ignores it because there is nothing to make transparent.
+    pub opacity: f32,
+    /// Panel tint as `#rrggbb`, or `auto` to follow the album art.
+    pub tint: String,
+    /// Text and control colour, or `auto` for the readable choice against the
+    /// tint. Kept separate because a dark tint with dark text is unreadable and
+    /// nobody sets out to choose that.
+    pub ink: String,
+    /// Corner radius in logical pixels. `shape` still decides square or round;
+    /// this is how round.
+    pub radius: u32,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            surface: Surface::System,
+            opacity: 1.0,
+            tint: "auto".into(),
+            ink: "auto".into(),
+            radius: 16,
+        }
+    }
+}
+
+/// Writing what is playing to files, for OBS and anything else that reads text.
+///
+/// Off by default: it writes to disk on every track change, and a music widget
+/// that quietly creates files nobody asked for is a surprise.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Obs {
+    pub enabled: bool,
+    /// Where the files go. Empty means beside the config, in `obs/`.
+    pub folder: String,
+    /// Also write the cover as `cover.jpg`, for an image source.
+    pub write_cover: bool,
+}
+
+impl Default for Obs {
+    fn default() -> Self {
+        Self { enabled: false, folder: String::new(), write_cover: true }
+    }
+}
+
 /// Checking whether a newer build has been published.
 ///
 /// On by default, and it is a single request: the version string is a plain
@@ -598,6 +684,10 @@ pub struct Config {
     pub boost: Boost,
     pub pet: Pet,
     pub updates: Updates,
+    /// Where the capsule sits in the window stack.
+    pub on_top: OnTop,
+    pub appearance: Appearance,
+    pub obs: Obs,
     /// Whether the first-run tour has been shown.
     ///
     /// Lives in the config rather than in the registry so that a portable copy
@@ -645,6 +735,9 @@ impl Default for Config {
             boost: Boost::default(),
             pet: Pet::default(),
             updates: Updates::default(),
+            on_top: OnTop::default(),
+            appearance: Appearance::default(),
+            obs: Obs::default(),
             always_expanded: false,
             onboarded: false,
             start_with_windows: false,
@@ -850,6 +943,18 @@ mod tests {
             discord.application_id.chars().all(|c| c.is_ascii_digit()),
             "a Discord client id is a bare snowflake; anything else is rejected at the handshake"
         );
+    }
+
+    #[test]
+    fn the_new_surfaces_default_to_what_shipped_before() {
+        // Every one of these is additive: an existing install must look and
+        // behave exactly as it did before the options existed.
+        let cfg = Config::default();
+        assert_eq!(cfg.on_top, OnTop::Always);
+        assert_eq!(cfg.appearance.surface, Surface::System);
+        assert_eq!(cfg.appearance.opacity, 1.0);
+        assert_eq!(cfg.appearance.tint, "auto");
+        assert!(!cfg.obs.enabled, "nothing writes files until asked");
     }
 
     #[test]

@@ -174,6 +174,28 @@
       : `translate(${9 * dir}px, -6px) scale(${32 / ART_BASE})`;
   });
 
+  /**
+   * The look, as CSS variables the stage reads.
+   *
+   * Kept as one derivation rather than sprinkled through the markup so that
+   * "what does this configuration look like" has a single answer, and so the
+   * `auto` cases resolve in one place: `auto` means "follow the album art",
+   * which is what the capsule already does everywhere else.
+   */
+  const look = $derived.by(() => {
+    const a = island.config?.appearance;
+    const tint = !a || a.tint === "auto" ? accent.base : a.tint;
+    const ink = !a || a.ink === "auto" ? "" : a.ink;
+    return {
+      surface: a?.surface ?? "system",
+      // `clear` has no panel to fade, so opacity does not apply to it.
+      opacity: a?.surface === "clear" ? 0 : (a?.opacity ?? 1),
+      tint,
+      ink,
+      radius: `${a?.radius ?? 16}px`,
+    };
+  });
+
   function hover(hovering: boolean) {
     // The host owns visibility; the renderer only reports what the pointer did.
     host.setHover(hovering).catch(() => {});
@@ -297,6 +319,11 @@
   style:--accent={accent.base}
   style:--accent-fg={accent.fg}
   style:--glow={accent.glow}
+  style:--panel-opacity={look.opacity}
+  style:--panel-tint={look.tint}
+  style:--panel-radius={look.radius}
+  style:color={look.ink || null}
+  data-surface={look.surface}
   role="group"
   aria-label="Now playing"
   class:dragging
@@ -457,11 +484,34 @@
   .stage {
     position: fixed;
     inset: 0;
-    border-radius: 8px;
+    border-radius: var(--panel-radius, 8px);
     overflow: hidden;
     pointer-events: auto;
     color: var(--ink);
     cursor: grab;
+  }
+
+  /* Opacity and transparency.
+     The veil and tint are the panel; the contents sit above them. Fading these
+     two rather than the whole stage is what makes a fully transparent capsule
+     still show its artwork and text — which is the point of it, and what makes
+     it usable as an OBS overlay. */
+  .stage .veil,
+  .stage .tint {
+    opacity: var(--panel-opacity, 1);
+  }
+
+  /* `solid` drops the system backdrop for a flat colour, which is the only
+     surface that looks identical on every Windows version — and the one to
+     choose on Windows 10, where Acrylic behind a small window is expensive. */
+  .stage[data-surface="solid"] .veil {
+    background: color-mix(in srgb, var(--panel-tint) 26%, #0b0d14);
+    backdrop-filter: none;
+  }
+
+  .stage[data-surface="clear"] {
+    /* Nothing behind the content at all: no veil, no tint, no shadow. */
+    box-shadow: none;
   }
 
   /* Held: the whole capsule is the drag handle, so the cursor says so. */

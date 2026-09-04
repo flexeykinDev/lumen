@@ -26,10 +26,13 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+use std::sync::atomic::AtomicBool;
+
 use windows::Win32::{
     Foundation::HWND,
     UI::WindowsAndMessaging::{
-        HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SetWindowPos,
+        HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING,
+        SetWindowPos,
     },
 };
 
@@ -103,6 +106,12 @@ pub struct GeometryAnimator {
     /// Bumped per transition so a superseded animator retires instead of
     /// fighting the newer one over `SetWindowPos`.
     generation: Arc<AtomicU64>,
+    /// Whether to re-assert topmost on every frame.
+    ///
+    /// Shared and atomic because the answer changes while animations are in
+    /// flight: a game taking the foreground stands the capsule down mid-glide,
+    /// and the frames after that must not put it back on top.
+    topmost: Arc<AtomicBool>,
 }
 
 impl GeometryAnimator {
@@ -111,9 +120,22 @@ impl GeometryAnimator {
             hwnd,
             state: Mutex::new((anchor, size)),
             generation: Arc::new(AtomicU64::new(0)),
+            topmost: Arc::new(AtomicBool::new(true)),
         };
         me.apply(anchor, size);
         me
+    }
+
+    /// Put the capsule in, or take it out of, the always-on-top band.
+    ///
+    /// Applied immediately as well as on every later frame: standing down for a
+    /// game has to happen now, not at the next transition.
+    pub fn set_topmost(&self, on: bool) {
+        if self.topmost.swap(on, Ordering::SeqCst) == on {
+            return;
+        }
+        let (anchor, size) = self.placement();
+        self.apply(anchor, size);
     }
 
     pub fn size(&self) -> Size {
@@ -282,11 +304,13 @@ impl GeometryAnimator {
 
         unsafe {
             // NOACTIVATE so the island never steals focus mid-animation, and
-            // TOPMOST re-asserted each frame so a newly-shown window cannot
-            // slide over the capsule while it is expanding.
+            // The band is re-asserted every frame so a newly-shown window
+            // cannot slide over the capsule while it is expanding — and so that
+            // standing down for a game takes effect on the very next frame.
+            let band = if self.topmost.load(Ordering::SeqCst) { HWND_TOPMOST } else { HWND_NOTOPMOST };
             let _ = SetWindowPos(
                 HWND(self.hwnd as *mut _),
-                Some(HWND_TOPMOST),
+                Some(band),
                 x,
                 y,
                 w,

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { host } from "../lib/bridge";
   import type { AppConfig } from "../lib/types";
   import { t } from "../lib/i18n";
 
@@ -25,7 +26,16 @@
   const { cfg, patch, finish }: Props = $props();
 
   /** Which little animation plays above the text. */
-  type Art = "wheel" | "close" | "dock" | "lyrics" | "boost" | "startup" | "done";
+  type Art =
+    | "wheel"
+    | "close"
+    | "dock"
+    | "lyrics"
+    | "boost"
+    | "startup"
+    | "games"
+    | "shortcut"
+    | "done";
 
   interface Step {
     art: Art;
@@ -83,6 +93,22 @@
       on: () => cfg.boost.enabled,
     },
     {
+      art: "games",
+      title: "Over games, or out of the way",
+      body: "The capsule sits above every other window, games included, which is how you can see a track change without leaving a match. If it ever lands somewhere awkward it can stand down for full-screen games instead — and either way, binding the hide/show hotkey in Settings gives you a way to make it vanish and come back.",
+      apply: (c, yes) => (c.onTop = yes ? "always" : "games"),
+      on: () => cfg.onTop === "always",
+    },
+    {
+      art: "shortcut",
+      title: "Somewhere to find it again",
+      body: "Lumen is a single portable file with no installer, which means it lives wherever you put it. A shortcut on the desktop and in the Start menu is how you get it back after the download folder is tidied.",
+      // The only step that writes nothing to the config: shortcuts are files
+      // on disk, and the effect below is what puts them there.
+      apply: (_c, yes) => void (shortcutsWanted = yes),
+      on: () => shortcutsWanted,
+    },
+    {
       art: "startup",
       title: "Start with Windows",
       body: "Lumen sits in the tray using no CPU when nothing is playing. Starting it with Windows means it is simply always there.",
@@ -95,6 +121,15 @@
       body: "The capsule appears above the taskbar when something plays. Middle-click it to hide it, drag it anywhere, and everything here — plus hotkeys, Discord and the rest — is in Settings whenever you want it.",
     },
   ];
+
+  // Answered during the tour, acted on when it moves to the next step: writing
+  // two `.lnk` files is a filesystem change, and doing it as the answer is
+  // clicked keeps the tour's promise literal.
+  let shortcutsWanted = $state(false);
+  $effect(() => {
+    void host.shortcutSet("desktop", shortcutsWanted).catch(() => {});
+    void host.shortcutSet("start", shortcutsWanted).catch(() => {});
+  });
 
   let index = $state(0);
   const step = $derived(STEPS[index]);
@@ -160,6 +195,24 @@
               <circle cx="7" cy="5.5" r="3" class="capsule-dot" />
             </g>
             <rect x="106" y="16" width="34" height="11" rx="5.5" class="ghost" />
+          {:else if step.art === "games"}
+            <!-- A game filling the screen, with the capsule riding above it. -->
+            <rect x="10" y="10" width="140" height="62" rx="4" class="frame" />
+            <path d="M40 44h16M48 36v16" class="pad" />
+            <circle cx="112" cy="40" r="4" class="pad-dot" />
+            <circle cx="124" cy="48" r="4" class="pad-dot" />
+            <g class="over">
+              <rect x="46" y="60" width="68" height="16" rx="8" />
+              <circle cx="56" cy="68" r="4" class="capsule-dot" />
+            </g>
+          {:else if step.art === "shortcut"}
+            <!-- A desktop icon, arriving. -->
+            <rect x="14" y="8" width="132" height="74" rx="6" class="frame" />
+            <g class="icon">
+              <rect x="66" y="28" width="28" height="28" rx="7" />
+              <circle cx="80" cy="42" r="5" class="capsule-dot" />
+            </g>
+            <path d="M72 64h16" class="lyric future" />
           {:else if step.art === "lyrics"}
             <!-- One line filling in time with the music. -->
             <path d="M28 26h104" class="lyric past" />
@@ -441,6 +494,40 @@
     72%,
     100% {
       transform: translate(106px, 16px);
+    }
+  }
+
+  /* Games: the capsule rides above a full-screen window. */
+  .pad,
+  .art .pad {
+    stroke: rgba(255, 255, 255, 0.35);
+    stroke-width: 2.5;
+  }
+  .pad-dot {
+    fill: rgba(255, 255, 255, 0.35);
+  }
+  .over rect {
+    fill: color-mix(in srgb, var(--settings-accent) 70%, transparent);
+  }
+  .over {
+    animation: clawd-arrive 2.4s ease-in-out infinite alternate;
+  }
+
+  /* Shortcut: the icon lands on the desktop. */
+  .icon rect {
+    fill: color-mix(in srgb, var(--settings-accent) 70%, transparent);
+  }
+  .icon {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: land 2.6s ease-in-out infinite alternate;
+  }
+  @keyframes land {
+    from {
+      transform: translateY(-4px) scale(0.94);
+    }
+    to {
+      transform: translateY(0) scale(1);
     }
   }
 
