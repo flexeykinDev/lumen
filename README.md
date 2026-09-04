@@ -100,7 +100,7 @@ npm run check                     # renderer types
 npm run check:motion              # host/renderer easing parity
 ```
 
-Eight tests are `#[ignore]`d because they need real audio playing or a real
+Nine tests are `#[ignore]`d because they need real audio playing or a real
 lock/unlock:
 
 ```bash
@@ -108,6 +108,7 @@ cargo test --lib -- --ignored --nocapture the_tap_follows   # capture vs session
 cargo test --lib -- --ignored --nocapture boost_replaces    # the whole boost chain
 cargo test -- --ignored --nocapture spectrum_cost           # spectrum CPU
 cargo test -- --ignored genius                              # the Genius scraper still parses
+cargo test --lib autostart -- --ignored                     # writes the real HKCU Run key
 ```
 
 ## How the boost works

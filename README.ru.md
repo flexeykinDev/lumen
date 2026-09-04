@@ -102,7 +102,7 @@ npm run check                     # типы рендерера
 npm run check:motion              # совпадение кривых хоста и рендерера
 ```
 
-Восемь тестов помечены `#[ignore]`, потому что им нужен реально играющий звук или
+Девять тестов помечены `#[ignore]`, потому что им нужен реально играющий звук или
 настоящая блокировка экрана:
 
 ```bash
@@ -110,6 +110,7 @@ cargo test --lib -- --ignored --nocapture the_tap_follows   # захват пр�
 cargo test --lib -- --ignored --nocapture boost_replaces    # вся цепочка усиления
 cargo test -- --ignored --nocapture spectrum_cost           # стоимость спектра по CPU
 cargo test -- --ignored genius                              # парсер Genius ещё живой
+cargo test --lib autostart -- --ignored                     # пишет реальный ключ HKCU Run
 ```
 
 ## Как устроено усиление
