@@ -244,151 +244,47 @@
   // Same shape as the seek scrub: a plain variable written per event, one state
   // write per frame from rAF, and no CSS transition in the way.
 
+  /** Cosmetic only: the host owns the gesture itself. */
   let dragging = $state(false);
-  let dragPointer = { x: 0, y: 0 };
-  let dragOrigin = { x: 0, y: 0 };
-  let dragStart = { x: 0, y: 0 };
-  let dragRaf = 0;
-  let dragMoved = false;
 
-  /** Movement below this is a click, not a drag. */
-  const DRAG_SLOP = 4;
-
-  // Velocity is measured over a short trailing window rather than the last two
-  // events. A single pair is dominated by whatever jitter happened in the final
-  // millisecond — often a near-zero delta, which reads as "stopped" even when
-  // the hand was clearly still moving. Averaging over ~80 ms of samples gives
-  // the speed of the gesture instead of the speed of its last twitch.
-  const VELOCITY_WINDOW_MS = 80;
-  const VELOCITY_SAMPLES = 5;
-  let samples: { x: number; y: number; t: number }[] = [];
-
-  function recordSample(x: number, y: number) {
-    samples.push({ x, y, t: performance.now() });
-    if (samples.length > VELOCITY_SAMPLES) samples.shift();
-  }
-
-  /** Release velocity in px/ms, from the trailing sample window. */
-  function releaseVelocity(): { vx: number; vy: number } {
-    const now = performance.now();
-    const recent = samples.filter((s) => now - s.t <= VELOCITY_WINDOW_MS);
-    if (recent.length < 2) return { vx: 0, vy: 0 };
-
-    const first = recent.at(0);
-    const last = recent.at(-1);
-    if (!first || !last) return { vx: 0, vy: 0 };
-
-    const dt = last.t - first.t;
-    // A zero span would divide by zero; a stale one is not a release gesture.
-    if (dt <= 0) return { vx: 0, vy: 0 };
-
-    return { vx: (last.x - first.x) / dt, vy: (last.y - first.y) / dt };
-  }
-
-  async function onDragPointerDown(event: PointerEvent) {
+  /**
+   * Hand the drag to the host and get out of the way.
+   *
+   * This used to be a full pointer-capture gesture here: `setPointerCapture`,
+   * a `pointermove` handler, a `drag_to` per animation frame, and velocity
+   * sampling. It broke under exactly the movement a drag is made of — the
+   * window chases the pointer, a fast flick outruns it, the WebView loses
+   * capture as the pointer crosses out of the moving window, and
+   * `lostpointercapture` cancelled the gesture mid-air.
+   *
+   * The host reads `GetCursorPos` and `GetAsyncKeyState` instead, neither of
+   * which a moving window can take away. All this side does is start it.
+   */
+  function onDragPointerDown(event: PointerEvent) {
     // Left button only, and never when the press started on a control.
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("button, .hit, .volume")) return;
 
-    try {
-      // Claim placement first, then read the origin: reading it before the
-      // host stops auto-placing risks capturing a position that is already
-      // being animated somewhere else.
-      await host.dragStart();
-      const [ox, oy] = await host.islandOrigin();
-      dragOrigin = { x: ox, y: oy };
-    } catch {
-      return;
-    }
-
-    dragStart = { x: event.screenX, y: event.screenY };
-    dragPointer = { x: event.screenX, y: event.screenY };
-    samples = [];
-    recordSample(event.screenX, event.screenY);
-    dragMoved = false;
     dragging = true;
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  }
-
-  function pumpDrag() {
-    if (!dragging) {
-      dragRaf = 0;
-      return;
-    }
-    const x = dragOrigin.x + (dragPointer.x - dragStart.x);
-    const y = dragOrigin.y + (dragPointer.y - dragStart.y);
-    host.dragTo(x, y).catch(() => {});
-    dragRaf = requestAnimationFrame(pumpDrag);
-  }
-
-  function onDragPointerMove(event: PointerEvent) {
-    if (!dragging) return;
-    dragPointer = { x: event.screenX, y: event.screenY };
-    recordSample(event.screenX, event.screenY);
-
-    if (!dragMoved) {
-      const dx = Math.abs(dragPointer.x - dragStart.x);
-      const dy = Math.abs(dragPointer.y - dragStart.y);
-      if (dx < DRAG_SLOP && dy < DRAG_SLOP) return;
-      dragMoved = true;
-    }
-    if (!dragRaf) dragRaf = requestAnimationFrame(pumpDrag);
-  }
-
-  function onDragPointerUp(event: PointerEvent) {
-    if (!dragging) return;
-    dragging = false;
-    if (dragRaf) cancelAnimationFrame(dragRaf);
-    dragRaf = 0;
-    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
-
-    // A press that never moved is a click, so the placement is left alone — but
-    // the host still has to be told the gesture is over. `dragStart` was already
-    // sent on pointerdown, and returning here without a matching end left the
-    // host in drag mode permanently: automatic placement disabled, and every
-    // state change deferred, so the capsule froze at whatever size it had. One
-    // stray click on the capsule was enough to do it.
-    if (!dragMoved) {
-      host.dragCancel().catch(() => {});
-      return;
-    }
-
-    const x = dragOrigin.x + (dragPointer.x - dragStart.x);
-    const y = dragOrigin.y + (dragPointer.y - dragStart.y);
-    const { vx, vy } = releaseVelocity();
-    host
-      .dragEnd(x, y, vx, vy)
-      .then((cfg) => (island.config = cfg))
-      .catch(() => {});
+    host.dragStart().catch(() => (dragging = false));
   }
 
   /**
-   * End a drag that will never receive a pointerup.
+   * Clear the local "being dragged" styling once the button is up.
    *
-   * Two ways that happens: the capsule is hidden out from under the pointer
-   * (middle-click, or playback stopping), or capture is taken by another
-   * window. Either leaves the host's drag flag set, which disables automatic
-   * placement permanently — the island then sits wherever it was and stops
-   * responding to docking entirely.
+   * The host owns the gesture, so this is cosmetic only — and it deliberately
+   * does not tell the host anything: a `pointerup` that never arrives (the
+   * pointer left the window during a throw) must not be able to strand the
+   * capsule mid-drag, and one that arrives early must not cut the host's
+   * gesture short.
    */
-  function abortDrag() {
-    if (!dragging) return;
+  function onDragPointerUp() {
     dragging = false;
-    if (dragRaf) cancelAnimationFrame(dragRaf);
-    dragRaf = 0;
-    samples = [];
-    host.dragCancel().catch(() => {});
   }
 
-  // The island being hidden mid-drag is the common case, and it produces no
-  // pointer event at all — only a state change.
-  $effect(() => {
-    if (!island.visible) abortDrag();
-  });
-
-  $effect(() => () => {
-    if (dragRaf) cancelAnimationFrame(dragRaf);
-  });
+  // The capsule being hidden mid-drag no longer needs handling here: the host's
+  // loop ends on the real button release, whatever the window is doing, and
+  // `Island::cancel_drag` is only reached when the gesture never moved.
 </script>
 
 <div
@@ -409,10 +305,7 @@
   onpointerleave={() => hover(false)}
   onwheel={onWheel}
   onpointerdown={onDragPointerDown}
-  onpointermove={onDragPointerMove}
   onpointerup={onDragPointerUp}
-  onpointercancel={abortDrag}
-  onlostpointercapture={abortDrag}
 >
   <div class="veil" aria-hidden="true"></div>
   <div class="tint" aria-hidden="true"></div>
@@ -1167,7 +1060,14 @@
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
     white-space: nowrap;
-    flex: none;
+    /* Shrinkable, and capped. A long player name ("Yandex Music") is a label,
+       and a label must never push into the controls beside it — which is what
+       `flex: none` on an uncapped name did to the volume slider. */
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition:
       color var(--dur) var(--ease),
       background var(--dur) var(--ease),

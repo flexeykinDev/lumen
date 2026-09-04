@@ -154,8 +154,50 @@
     pendingPos = next;
     clearTimeout(settleTimer);
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    startReleaseWatch();
     event.preventDefault();
   }
+
+  // --- release watchdog -----------------------------------------------------
+  //
+  // Dragging the thumb to 0:00 and letting go *outside* the window used to
+  // leave the bar showing 0:00 for ever while the track carried on from where
+  // it was. The seek was never sent: the `pointerup` landed outside a window
+  // that had lost pointer capture, so the handler that commits it never ran,
+  // and the scrub loop kept re-asserting the last dragged position.
+  //
+  // Losing the event is not something this side can prevent, so it asks the
+  // host instead: `GetAsyncKeyState` knows whether the button is still down no
+  // matter where the pointer went. Polling only exists while a scrub is in
+  // progress, and it is four calls a second.
+
+  let releaseWatch: ReturnType<typeof setInterval> | undefined;
+
+  function startReleaseWatch() {
+    stopReleaseWatch();
+    releaseWatch = setInterval(async () => {
+      if (!dragging) {
+        stopReleaseWatch();
+        return;
+      }
+      try {
+        if (!(await host.pointerPressed())) onPointerUp();
+      } catch {
+        // The host is the authority; if it cannot answer, keep waiting for a
+        // real pointerup rather than committing a seek nobody asked for.
+      }
+    }, 250);
+  }
+
+  function stopReleaseWatch() {
+    if (releaseWatch !== undefined) clearInterval(releaseWatch);
+    releaseWatch = undefined;
+  }
+
+  $effect(() => () => {
+    stopReleaseWatch();
+    clearTimeout(settleTimer);
+  });
 
   function onPointerMove(event: PointerEvent) {
     if (!dragging) return;
@@ -173,12 +215,22 @@
     startScrubLoop();
   }
 
-  function onPointerUp(event: PointerEvent) {
+  function onPointerUp(event?: PointerEvent) {
     if (!dragging) return;
     dragging = false;
     scrubbing = false;
     stopScrubLoop();
-    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+    stopReleaseWatch();
+    if (event) {
+      const el = event.currentTarget as HTMLElement | null;
+      // `releasePointerCapture` throws if the capture was already lost, which
+      // is precisely the case this function exists to survive.
+      try {
+        el?.releasePointerCapture(event.pointerId);
+      } catch {
+        /* capture was already gone */
+      }
+    }
 
     const target = pendingPos;
     if (target === null) return;

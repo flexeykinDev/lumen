@@ -45,6 +45,8 @@ pub struct Policy {
     /// Stay expanded rather than collapsing back. Set by the hotkey and by the
     /// config, so the choice survives a restart.
     pinned: AtomicBool,
+    /// Retires the hover watchdog when a newer one starts.
+    hover_epoch: AtomicU64,
 }
 
 impl Policy {
@@ -60,10 +62,11 @@ impl Policy {
             peek_epoch: AtomicU64::new(0),
             flash_epoch: AtomicU64::new(0),
             pinned: AtomicBool::new(pinned),
+            hover_epoch: AtomicU64::new(0),
         })
     }
 
-    pub fn set_hover(&self, hovering: bool) {
+    pub fn set_hover(self: &Arc<Self>, hovering: bool) {
         // A deliberate hover cancels the automatic peek, so moving the pointer
         // away collapses immediately instead of waiting out the leftover timer.
         if hovering {
@@ -71,6 +74,48 @@ impl Policy {
         }
         self.hover.store(hovering, Ordering::SeqCst);
         self.resolve();
+
+        if hovering {
+            self.watch_hover();
+        } else {
+            // Nothing to watch, and a live watchdog would keep checking a
+            // pointer that has already been accounted for.
+            self.hover_epoch.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Make sure a claimed hover is still true.
+    ///
+    /// `pointerleave` is not dependable here. The capsule *changes size* in
+    /// response to the hover it is reporting, and a window that shrinks away
+    /// from a stationary pointer frequently sends no leave event at all — which
+    /// left the panel stuck open until something else happened to disturb it.
+    ///
+    /// So the claim is verified against the real cursor a few times a second,
+    /// and only while a hover is being claimed: no hover, no thread, no cost.
+    fn watch_hover(self: &Arc<Self>) {
+        const EVERY: Duration = Duration::from_millis(180);
+
+        let epoch = self.hover_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        let me = Arc::clone(self);
+        let _ = std::thread::Builder::new().name("lumen-hover".into()).spawn(move || {
+            loop {
+                std::thread::sleep(EVERY);
+                // A newer watchdog owns the question now.
+                if me.hover_epoch.load(Ordering::SeqCst) != epoch {
+                    return;
+                }
+                if !me.hover.load(Ordering::SeqCst) {
+                    return;
+                }
+                if !me.island.contains_cursor() {
+                    tracing::debug!("pointer left the capsule without a leave event");
+                    me.hover.store(false, Ordering::SeqCst);
+                    me.resolve();
+                    return;
+                }
+            }
+        });
     }
 
     pub fn on_media(self: &Arc<Self>, event: &MediaEvent) {

@@ -105,6 +105,7 @@ pub fn run() {
             ipc::seek,
             ipc::island_origin,
             ipc::drag_start,
+            ipc::pointer_pressed,
             ipc::drag_cancel,
             ipc::drag_to,
             ipc::drag_end,
@@ -303,6 +304,23 @@ pub fn run() {
                 } else {
                     None
                 };
+
+                // Force the capsule on screen with nothing playing, so the
+                // window itself can be exercised — drag, hover, placement —
+                // without needing a media session. Same shape as the settings
+                // switch below, and just as harmless: it reveals a window the
+                // tray can already reveal.
+                if std::env::var_os("LUMEN_REVEAL").is_some() {
+                    let policy = Arc::clone(&policy);
+                    let _ = std::thread::Builder::new().name("lumen-reveal".into()).spawn(
+                        move || {
+                            // After the first placement, or the reveal races the
+                            // park that follows it.
+                            std::thread::sleep(std::time::Duration::from_millis(1200));
+                            policy.reveal();
+                        },
+                    );
+                }
 
                 // First launch: introduce the features that change how the
                 // machine behaves, rather than waiting to be discovered by

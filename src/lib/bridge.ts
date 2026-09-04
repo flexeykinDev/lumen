@@ -89,9 +89,12 @@ export const host = {
   statsClear: () => invoke<StatsSummary>("stats_clear"),
 
   islandOrigin: () => invoke<[number, number]>("island_origin"),
-  /// Suspends automatic placement for the duration of the gesture — otherwise a
-  /// media event mid-drag re-docks the window under the pointer.
+  /// Hands the whole gesture to the host, which follows the real cursor until
+  /// the real button comes up. See `island::start_host_drag`.
   dragStart: () => invoke<void>("drag_start"),
+  /// Whether the left button is physically down. Used to end a scrub whose
+  /// `pointerup` never arrived.
+  pointerPressed: () => invoke<boolean>("pointer_pressed"),
   /// Abandon a drag that will get no pointerup — the capsule was hidden, or
   /// capture was lost. Without this the host stays in drag mode forever.
   dragCancel: () => invoke<void>("drag_cancel"),

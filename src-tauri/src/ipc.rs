@@ -148,10 +148,27 @@ pub fn island_origin(ctx: State<'_, Ctx>) -> (i32, i32) {
     ctx.policy.island().origin()
 }
 
-/// Begin a manual drag. Suspends automatic placement until `drag_end`.
+/// Begin a manual drag.
+///
+/// The host takes it from here: it follows the real cursor and the real mouse
+/// button until the button comes up, then snaps and persists. The renderer only
+/// says "the gesture started", because the renderer is the one thing in this
+/// system that stops receiving events the moment the window moves out from
+/// under the pointer.
 #[tauri::command]
 pub fn drag_start(ctx: State<'_, Ctx>) {
-    ctx.policy.island().begin_drag();
+    ctx.policy.island().start_host_drag(Arc::clone(&ctx.cfg), ctx.app.clone());
+}
+
+/// Is the left mouse button down right now?
+///
+/// A fallback for gestures the renderer owns (the seek bar): a `pointerup`
+/// delivered outside the window can be lost, and a scrub that never ends is a
+/// slider stuck at whatever it last showed.
+#[tauri::command]
+pub fn pointer_pressed() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000 != 0 }
 }
 
 /// Abandon a drag without placing — pointer capture lost, or the capsule was

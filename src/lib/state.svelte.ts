@@ -108,8 +108,18 @@ class Island {
   #seekTo: number | null = null;
   #seekAt = 0;
 
-  /** How long to prefer the requested position over what the source reports. */
-  static #SEEK_SETTLE_MS = 6000;
+  /**
+   * How long to prefer the requested position over what the source reports.
+   *
+   * Six seconds was too generous. The window only exists to outlast the burst
+   * of stale samples a browser publishes right after a seek — a beat, not six
+   * of them — and while it is open the lyrics follow the *requested* position
+   * rather than the real one. On YouTube, where the source often lands slightly
+   * off where it was asked, that showed as words running five or six seconds
+   * out of step until the window expired. Reconciliation ends it early whenever
+   * a plausible sample arrives, so this is only the ceiling.
+   */
+  static #SEEK_SETTLE_MS = 2500;
   /** How far a sample may sit from the expected position and still be believed. */
   static #SEEK_TOLERANCE_S = 3;
 
@@ -295,6 +305,18 @@ class Island {
     const now = performance.now();
     const trackChanged = v?.revision !== this.now?.revision || v?.sessionId !== this.now?.sessionId;
 
+    // Drop the old words the instant the track changes.
+    //
+    // The arrival guard below already refuses lyrics that belong to a track
+    // that has been skipped past, but nothing cleared what was already on
+    // screen — so the previous song's line sat under the new title until a
+    // lookup happened to replace it, and stayed there for good when the new
+    // track had no lyrics at all. Silence is the honest state between tracks.
+    if (trackChanged) {
+      this.lyrics = [];
+      this.lyricsEstimated = false;
+    }
+
     if (this.#seekTo !== null) {
       if (trackChanged || v === null) {
         // A different track entirely: the seek no longer means anything.
@@ -304,10 +326,17 @@ class Island {
         const expected =
           this.#seekTo + (this.playing ? Math.max(0, (now - this.#seekAt) / 1000) : 0);
         const reported = v?.timeline.positionSec ?? 0;
-        // A literal zero is never a plausible answer to "where did that seek
-        // land". Browsers publish it for a beat after seeking, and accepting it
-        // is what drops the counter to 0:00.
-        const reportedZero = reported < 1 && expected > 2;
+        // A literal zero is usually not a plausible answer to "where did that
+        // seek land": browsers publish it for a beat after seeking, and
+        // accepting it is what drops the counter to 0:00.
+        //
+        // Unless zero is what was *asked for*. Seeking to the very start is the
+        // one case where the source reporting 0 means it worked, and treating
+        // that as staleness left the bar refusing to hand authority back — the
+        // counter ran on from an imaginary zero while the track played from
+        // wherever it had been.
+        const seekedToStart = (this.#seekTo as number) < 1;
+        const reportedZero = !seekedToStart && reported < 1 && expected > 2;
 
         if (!reportedZero && Math.abs(reported - expected) <= Island.#SEEK_TOLERANCE_S) {
           // The source agrees; hand authority back to it, and keep the clock

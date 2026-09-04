@@ -22,7 +22,7 @@ const CONTAINER: &str = "data-lyrics-container";
 /// Find a song page path for `artist` and `title`, e.g. `/Artist-title-lyrics`.
 pub fn find_song_path(artist: &str, title: &str) -> anyhow::Result<Option<String>> {
     let query = format!(
-        "/api/search/multi?per_page=5&q={}",
+        "/api/search/multi?per_page=8&q={}",
         http::encode(&format!("{artist} {title}"))
     );
     let Some(body) = http::get("genius.com", &query)? else {
@@ -37,21 +37,136 @@ pub fn find_song_path(artist: &str, title: &str) -> anyhow::Result<Option<String
         .map(Vec::as_slice)
         .unwrap_or_default();
 
+    let mut best: Option<(f64, String)> = None;
+
     for section in sections {
         // Only the "song" section carries lyric pages; the others are artists,
         // albums and user-written annotations.
         if section.get("type").and_then(|t| t.as_str()) != Some("song") {
             continue;
         }
-        let hits = section.get("hits").and_then(|h| h.as_array()).map(Vec::as_slice).unwrap_or_default();
+        let hits =
+            section.get("hits").and_then(|h| h.as_array()).map(Vec::as_slice).unwrap_or_default();
+
         for hit in hits {
-            if let Some(path) = hit.get("result").and_then(|r| r.get("path")).and_then(|p| p.as_str())
-            {
-                return Ok(Some(path.to_owned()));
+            let Some(result) = hit.get("result") else { continue };
+            let Some(path) = result.get("path").and_then(|p| p.as_str()) else { continue };
+            let hit_title = result.get("title").and_then(|t| t.as_str()).unwrap_or_default();
+            let hit_artist = result
+                .get("primary_artist")
+                .and_then(|a| a.get("name"))
+                .and_then(|n| n.as_str())
+                .or_else(|| result.get("artist_names").and_then(|n| n.as_str()))
+                .unwrap_or_default();
+
+            let Some(score) = match_score(artist, title, hit_artist, hit_title) else { continue };
+            if best.as_ref().is_none_or(|(b, _)| score > *b) {
+                best = Some((score, path.to_owned()));
             }
         }
     }
-    Ok(None)
+
+    match best {
+        Some((score, path)) => {
+            tracing::debug!("genius: {path} scored {score:.2} for {artist} - {title}");
+            Ok(Some(path))
+        }
+        None => {
+            // Better nothing than someone else's song. Genius answers every
+            // query with *something*, and taking the first hit unconditionally
+            // is what put unrelated lyrics — very often an English track, or a
+            // translation page — under Russian songs.
+            tracing::info!("genius: no hit resembles {artist} - {title}");
+            Ok(None)
+        }
+    }
+}
+
+/// Pages that are *about* a song rather than the song.
+///
+/// Genius hosts a translation page per language, and for Russian and Ukrainian
+/// tracks these outrank the original in search often enough to matter. Their
+/// lyrics are the translated text, which is not what is being sung.
+const NOT_THE_SONG: [&str; 10] = [
+    "translation",
+    "translations",
+    "traduction",
+    "traduzione",
+    "traducción",
+    "übersetzung",
+    "romanization",
+    "romanized",
+    "перевод",
+    "переклад",
+];
+
+/// How well a search hit matches what is playing, or `None` to reject it.
+///
+/// Both halves have to agree. Title alone matches every cover, remix and
+/// karaoke version; artist alone matches the whole discography.
+fn match_score(artist: &str, title: &str, hit_artist: &str, hit_title: &str) -> Option<f64> {
+    let hit_artist_low = hit_artist.to_lowercase();
+    let hit_title_low = hit_title.to_lowercase();
+    if NOT_THE_SONG.iter().any(|bad| hit_artist_low.contains(bad) || hit_title_low.contains(bad)) {
+        return None;
+    }
+
+    let title_score = similarity(&normalise(title), &normalise(hit_title));
+    let artist_score = similarity(&normalise(artist), &normalise(hit_artist));
+
+    // Both halves, always. An exact title with a stranger's name on it is a
+    // cover, a karaoke version or a tribute album — all of which have different
+    // words — so "the title matched perfectly" is not a reason to skip the
+    // artist check. Featured artists survive it anyway: `similarity` measures
+    // against the shorter name, so "Yeat" against "Yeat, Lil Uzi Vert" is 1.0.
+    if title_score < 0.6 || artist_score < 0.34 {
+        return None;
+    }
+    Some(title_score * 0.7 + artist_score * 0.3)
+}
+
+/// Strip a track name down to comparable words.
+///
+/// Removes the decoration sources add and disagree about: bracketed suffixes
+/// ("(Official Video)", "[Explicit]"), feature credits, and punctuation. What is
+/// left is the words a human would call the title.
+fn normalise(text: &str) -> Vec<String> {
+    let lower = text.to_lowercase();
+
+    // Everything from the first bracket onward is decoration, not the name.
+    let trimmed = lower
+        .split(['(', '[', '{'])
+        .next()
+        .unwrap_or(&lower)
+        .split(" feat")
+        .next()
+        .unwrap_or(&lower)
+        .split(" ft.")
+        .next()
+        .unwrap_or(&lower);
+
+    trimmed
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        // Latin noise words that carry no identity, and their Russian pair.
+        .filter(|w| !matches!(*w, "the" | "a" | "an" | "и" | "the-" | "official" | "lyrics"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Word overlap between two normalised names, 0..1.
+///
+/// Deliberately not an edit distance: sources reorder and drop words far more
+/// often than they misspell them, and "Кисло-сладкий" against "кисло сладкий"
+/// has to score 1.0 while "Небо" against "Небоскрёб" must not.
+fn similarity(a: &[String], b: &[String]) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let shared = a.iter().filter(|w| b.contains(w)).count();
+    // Against the shorter side: a hit whose title carries extra words is still
+    // the right song, but a hit that only contains *some* of ours is not.
+    shared as f64 / a.len().min(b.len()) as f64
 }
 
 /// Fetch a song page and pull the lyric text out of it.
@@ -155,6 +270,62 @@ fn decode_entities(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_exact_match_is_accepted() {
+        assert!(match_score("KYSLINGO", "The Law", "KYSLINGO", "The Law").is_some());
+        // Case and punctuation are noise.
+        assert!(match_score("кис-кис", "Всё, что тебя касается", "Кис-Кис", "Всё что тебя касается")
+            .is_some());
+    }
+
+    #[test]
+    fn decoration_does_not_break_a_match() {
+        assert!(
+            match_score("Molchat Doma", "Судно", "Molchat Doma", "Судно (Sudno) [Official Video]")
+                .is_some()
+        );
+        assert!(match_score("Yeat", "Flawlëss", "Yeat", "Flawlëss (feat. Lil Uzi Vert)").is_some());
+    }
+
+    #[test]
+    fn a_different_song_is_rejected() {
+        // The failure this exists to stop: Genius answers every query with
+        // something, and the first hit for a Russian track is regularly an
+        // unrelated English one.
+        assert!(match_score("КРЕТИН 528", "о пропаже рофла", "Drake", "God's Plan").is_none());
+        assert!(match_score("Молчат Дома", "Судно", "Кино", "Группа крови").is_none());
+    }
+
+    #[test]
+    fn translation_pages_are_never_the_song() {
+        // These outrank the original for Russian and Ukrainian tracks, and
+        // their "lyrics" are the translated text.
+        assert!(
+            match_score("Молчат Дома", "Судно", "Genius Russian Translations", "Судно").is_none()
+        );
+        assert!(match_score("Zemfira", "Искала", "Zemfira", "Искала (Romanized)").is_none());
+        assert!(match_score("Zemfira", "Искала", "Zemfira", "Искала (English Translation)").is_none());
+    }
+
+    #[test]
+    fn the_same_title_by_the_wrong_artist_is_rejected() {
+        // Covers, karaoke and tribute versions all share the title.
+        assert!(match_score("Nirvana", "Something in the Way", "Karaoke Hits", "Something in the Way")
+            .is_none());
+    }
+
+    #[test]
+    fn a_partial_title_does_not_count_as_a_match() {
+        assert_eq!(similarity(&normalise("Небо"), &normalise("Небоскрёб")), 0.0);
+    }
+
+    #[test]
+    fn a_stronger_match_outranks_a_weaker_one() {
+        let close = match_score("Кис-Кис", "Помада", "Кис-Кис", "Помада").expect("exact");
+        let loose = match_score("Кис-Кис", "Помада", "Другая группа", "Помада тоже");
+        assert!(loose.is_none_or(|l| close > l));
+    }
 
     const PAGE: &str = r#"
 <html><body>

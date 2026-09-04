@@ -105,6 +105,8 @@ pub struct Island {
     mirrored: AtomicBool,
     /// When the drag last showed signs of life. See `drag_is_stale`.
     drag_activity: Mutex<Instant>,
+    /// A host drag loop is running. Guards against a second one starting.
+    drag_thread: AtomicBool,
     cfg: Arc<ConfigStore>,
     backdrop: BackdropKind,
 }
@@ -144,6 +146,7 @@ impl Island {
             pending_state: Mutex::new(None),
             mirrored: AtomicBool::new(false),
             drag_activity: Mutex::new(Instant::now()),
+            drag_thread: AtomicBool::new(false),
             cfg,
             backdrop,
         });
@@ -335,6 +338,34 @@ impl Island {
         anchor.origin(size)
     }
 
+    /// Whether the cursor is physically inside the capsule right now.
+    ///
+    /// Asked of Windows rather than inferred from a `pointerleave`, because the
+    /// WebView does not reliably send one when the window moves or resizes out
+    /// from under a stationary pointer — which is exactly what a collapse does.
+    /// The window rectangle is read fresh: mid-animation it is neither the
+    /// collapsed nor the expanded size, and a cached one would answer for a
+    /// shape that is not on screen.
+    pub fn contains_cursor(&self) -> bool {
+        use windows::Win32::{
+            Foundation::{POINT, RECT},
+            UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect},
+        };
+
+        let hwnd = windows::Win32::Foundation::HWND(self.hwnd as *mut _);
+        let mut rect = RECT::default();
+        let mut cursor = POINT::default();
+        unsafe {
+            if GetWindowRect(hwnd, &mut rect).is_err() || GetCursorPos(&mut cursor).is_err() {
+                // Unanswerable: say "still inside" so a failed check can never
+                // collapse a capsule the pointer is actually resting on.
+                return true;
+            }
+        }
+
+        (rect.left..rect.right).contains(&cursor.x) && (rect.top..rect.bottom).contains(&cursor.y)
+    }
+
     /// Whether a drag has gone quiet for long enough to be treated as over.
     ///
     /// A live drag sends `drag_to` on every animation frame, so silence means
@@ -425,6 +456,119 @@ impl Island {
         self.mark_drag_activity();
         let (x, y) = clamp_on_screen(x, y, self.geometry.size());
         self.geometry.set_anchor(Anchor::at(x, y));
+    }
+
+    /// Drag the capsule from the host, following the real cursor.
+    ///
+    /// The renderer used to own this: pointer capture on the WebView, a
+    /// `pointermove` per frame, and a `drag_to` per move. It broke exactly as
+    /// you would expect once the window started moving out from under the
+    /// pointer — a fast flick outran the window, the WebView lost capture, and
+    /// `lostpointercapture` aborted the gesture mid-flight. The pointer had not
+    /// gone anywhere; the events had.
+    ///
+    /// So the gesture is read from the source instead. `GetCursorPos` is the
+    /// real cursor wherever it is, including over other windows and off the
+    /// edge of the desktop, and `GetAsyncKeyState` is the real button. Neither
+    /// can be lost by a window that moved.
+    ///
+    /// Costs one thread for the length of the gesture and nothing afterwards.
+    pub fn start_host_drag(self: &Arc<Self>, cfg: Arc<ConfigStore>, app: AppHandle) {
+        use windows::Win32::UI::{
+            Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON},
+            WindowsAndMessaging::GetCursorPos,
+        };
+
+        if self.drag_thread.swap(true, Ordering::SeqCst) {
+            // A gesture is already running. A second pointerdown without an up
+            // means the first one is stale, and two loops fighting over the
+            // window would be worse than either.
+            return;
+        }
+
+        self.begin_drag();
+
+        let me = Arc::clone(self);
+        let _ = std::thread::Builder::new().name("lumen-drag".into()).spawn(move || {
+            let cursor = || -> Option<(i32, i32)> {
+                let mut p = windows::Win32::Foundation::POINT::default();
+                unsafe { GetCursorPos(&mut p) }.ok().map(|()| (p.x, p.y))
+            };
+            let pressed =
+                || unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000 != 0 };
+
+            let Some(start_cursor) = cursor() else {
+                me.dragging.store(false, Ordering::SeqCst);
+                me.drag_thread.store(false, Ordering::SeqCst);
+                return;
+            };
+            let start_origin = me.origin();
+
+            // Velocity, from the last few samples: a flick should still coast
+            // into the corner it was aimed at.
+            let mut samples: Vec<((i32, i32), Instant)> = Vec::with_capacity(8);
+            let mut last = start_cursor;
+            let mut moved = false;
+            let began = Instant::now();
+
+            loop {
+                if !pressed() {
+                    break;
+                }
+                // A gesture that has run for two minutes is a stuck button or a
+                // lost release, not a drag.
+                if began.elapsed() > Duration::from_secs(120) {
+                    tracing::warn!("drag ran for two minutes; ending it");
+                    break;
+                }
+
+                if let Some(now) = cursor() {
+                    if now != last {
+                        last = now;
+                        moved = moved
+                            || (now.0 - start_cursor.0).abs() > DRAG_SLOP
+                            || (now.1 - start_cursor.1).abs() > DRAG_SLOP;
+                        samples.push((now, Instant::now()));
+                        if samples.len() > 6 {
+                            samples.remove(0);
+                        }
+                        if moved {
+                            me.drag_to(
+                                start_origin.0 + (now.0 - start_cursor.0),
+                                start_origin.1 + (now.1 - start_cursor.1),
+                            );
+                        }
+                    }
+                }
+
+                // ~120 Hz: finer than any display refresh, coarse enough that
+                // the thread is asleep almost all of the time.
+                std::thread::sleep(Duration::from_millis(8));
+            }
+
+            let conf = cfg.get();
+            if !moved {
+                // A press that never moved is a click. The placement is left
+                // alone, but the host still has to leave drag mode.
+                me.cancel_drag(&conf);
+                me.drag_thread.store(false, Ordering::SeqCst);
+                return;
+            }
+
+            let velocity = release_velocity(&samples);
+            let (x, y) = (
+                start_origin.0 + (last.0 - start_cursor.0),
+                start_origin.1 + (last.1 - start_cursor.1),
+            );
+            let (dock, free_x, free_y) = me.end_drag(x, y, velocity, &conf);
+            let stored = cfg.update(|c| {
+                c.dock = dock;
+                c.free_x = free_x;
+                c.free_y = free_y;
+            });
+            let _ = app.emit(crate::ipc::EVT_CONFIG, &stored);
+            me.drag_thread.store(false, Ordering::SeqCst);
+        });
     }
 
     /// Finish a drag: snap to the nearest anchor if close enough, otherwise keep
@@ -625,7 +769,7 @@ const MIN_VISIBLE: i32 = 56;
 /// Keep a window origin within reach of the virtual desktop.
 ///
 /// The virtual screen spans every monitor, so this permits dragging onto any
-/// display and even hanging off an edge — it only prevents the capsule leaving
+/// display and even hanging off a side — it only prevents the capsule leaving
 /// entirely.
 fn clamp_on_screen(x: i32, y: i32, size: Size) -> (i32, i32) {
     let (left, top, width, height) = unsafe {
@@ -639,17 +783,61 @@ fn clamp_on_screen(x: i32, y: i32, size: Size) -> (i32, i32) {
     if width <= 0 || height <= 0 {
         return (x, y);
     }
+    clamp_within((left, top, left + width, top + height), x, y, size)
+}
 
-    let right = left + width;
-    let bottom = top + height;
+/// The arithmetic behind `clamp_on_screen`, with the desktop passed in.
+///
+/// Split out to be testable, and because the rule is worth stating exactly:
+/// horizontally the capsule may hang off either side as long as a grabbable
+/// strip remains, but its *top edge* may never rise above the desktop. A window
+/// pushed up off the top can still be partly visible and yet impossible to drag
+/// back, because the part you grab is the part that has gone.
+///
+/// The height also has to survive a later collapse. The clamp runs against
+/// whatever size is on screen at the time, and the capsule loses a hundred
+/// pixels of height when it collapses — which is how a drag released at the top
+/// while expanded ended up with the collapsed capsule half off the screen.
+/// Clamping the top edge rather than a fraction of the height is what makes
+/// that safe at any size.
+fn clamp_within(bounds: (i32, i32, i32, i32), x: i32, y: i32, size: Size) -> (i32, i32) {
+    let (left, top, right, bottom) = bounds;
     let keep_x = MIN_VISIBLE.min(size.w);
     let keep_y = MIN_VISIBLE.min(size.h);
 
     (
         x.clamp(left - (size.w - keep_x), right - keep_x),
-        y.clamp(top - (size.h - keep_y), bottom - keep_y),
+        y.clamp(top, (bottom - keep_y).max(top)),
     )
 }
+
+/// Pointer speed at release, in px/ms, from the tail of the sample buffer.
+///
+/// Measured over the last ~80 ms rather than the last event: a single pair of
+/// samples 8 ms apart turns one jittery pixel into a phantom flick.
+fn release_velocity(samples: &[((i32, i32), Instant)]) -> (f64, f64) {
+    let Some((last, at)) = samples.last() else { return (0.0, 0.0) };
+    let window = Duration::from_millis(80);
+    let Some((first, first_at)) = samples
+        .iter()
+        .find(|(_, t)| at.duration_since(*t) <= window)
+        .or_else(|| samples.first())
+    else {
+        return (0.0, 0.0);
+    };
+
+    let ms = at.duration_since(*first_at).as_secs_f64() * 1000.0;
+    if ms < 1.0 {
+        return (0.0, 0.0);
+    }
+    (
+        f64::from(last.0 - first.0) / ms,
+        f64::from(last.1 - first.1) / ms,
+    )
+}
+
+/// How far the cursor must travel before a press becomes a drag, in pixels.
+const DRAG_SLOP: i32 = 3;
 
 /// How long the capsule is assumed to keep coasting after release, in ms.
 /// Multiplied by the release velocity to predict where a flick was aimed.
@@ -701,6 +889,52 @@ fn glide_duration(distance: f64, speed: f64) -> Duration {
 
 #[cfg(test)]
 mod tests {
+    /// A capsule that cannot be reached is worse than one in an odd place.
+    #[test]
+    fn the_top_edge_never_leaves_the_desktop() {
+        let desktop = (0, 0, 1920, 1080);
+        let collapsed = Size { w: 268, h: 44 };
+
+        let (x, y) = clamp_within(desktop, -900, -400, collapsed);
+        assert_eq!(y, 0, "the top edge went above the desktop");
+        assert!(x > -268, "the whole capsule went off the left edge");
+
+        // The case that actually happened: dragged while expanded, released
+        // above the top, then collapsed to a third of the height.
+        let expanded = Size { w: 428, h: 148 };
+        let (_, y) = clamp_within(desktop, 500, -22, expanded);
+        assert_eq!(y, 0);
+    }
+
+    #[test]
+    fn a_grabbable_strip_always_remains() {
+        let desktop = (0, 0, 1920, 1080);
+        let size = Size { w: 268, h: 44 };
+
+        let (x, y) = clamp_within(desktop, 5000, 5000, size);
+        assert!(x <= 1920 - MIN_VISIBLE.min(size.w), "nothing left to grab on the right");
+        assert!(y <= 1080 - MIN_VISIBLE.min(size.h), "nothing left to grab at the bottom");
+
+        let (x, _) = clamp_within(desktop, -5000, 100, size);
+        assert!(x + size.w >= MIN_VISIBLE.min(size.w), "nothing left to grab on the left");
+    }
+
+    #[test]
+    fn a_position_already_on_screen_is_left_alone() {
+        let desktop = (0, 0, 1920, 1080);
+        let size = Size { w: 268, h: 44 };
+        assert_eq!(clamp_within(desktop, 800, 900, size), (800, 900));
+    }
+
+    #[test]
+    fn a_monitor_left_of_the_primary_is_still_reachable() {
+        // A second display to the left makes the virtual desktop start negative;
+        // clamping to zero there would forbid the whole monitor.
+        let desktop = (-1920, 0, 1920, 1080);
+        let size = Size { w: 268, h: 44 };
+        assert_eq!(clamp_within(desktop, -1800, 500, size), (-1800, 500));
+    }
+
     use super::*;
 
     #[test]
