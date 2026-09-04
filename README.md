@@ -9,7 +9,7 @@ do with it.
 <p>
   <a href="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/flexeykinDev/lumen/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/flexeykinDev/lumen?color=7a8cff&label=release" /></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-161%20passing-5ad19b" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-197%20passing-5ad19b" />
   <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-5ad19b" />
   <img alt="Size" src="https://img.shields.io/badge/exe-4.3%20MB-c8cee0" />
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%201809%2B-0078d4" />
@@ -49,6 +49,11 @@ do with it.
   artists and totals in the settings window. A track counts after thirty seconds
   — or half its length if shorter — so skipping a playlist does not fill the
   chart with songs you rejected. Nothing is sent anywhere.
+- **Above games, or not.** Always on top, only when a game is not filling the
+  screen, or never — with a hide/show hotkey either way.
+- **OBS output.** Now-playing written to text files, a cover image and a
+  ready-made HTML overlay, because window capture of a layered topmost window
+  is unreliable by nature.
 - **Update check.** One request per launch to a text file in this repository.
   It reports; it never downloads or replaces anything.
 - **Portable.** One 4.3 MB exe, one JSON file beside it. No installer, no
@@ -168,6 +173,12 @@ below is also in the settings window.
 | `spectrum.enabled` | bool | |
 | `pet.*` | — | Written by the easter egg. Nothing to set by hand |
 | `updates.check` | bool | Ask GitHub whether a newer release exists, once per launch |
+| `onTop` | `always` \| `games` \| `never` | `games` stands down while a full-screen game owns the foreground |
+| `appearance.surface` | `system` \| `solid` \| `clear` | `clear` removes the panel entirely |
+| `appearance.opacity` | `0`–`1` | Panel only; the contents stay readable |
+| `appearance.tint`, `appearance.ink` | `#rrggbb` \| `auto` | `auto` follows the album art |
+| `appearance.radius` | px | Corner radius. On Windows 10 this is what shapes the capsule |
+| `obs.enabled`, `obs.folder`, `obs.writeCover` | bool, path, bool | Now-playing files for OBS |
 | `startWithWindows` | bool | Mirrored into `HKCU\…\Run`, reconciled every launch |
 
 ### Hotkeys
@@ -244,8 +255,15 @@ asked for under 20 MB; that is not reachable with a WebView-based renderer, and
 
 ## Requirements
 
-- Windows 10 1809+ (Mica needs Windows 11 22H2; below that, Acrylic, then a
-  plain translucent panel). Boost needs Windows 10 2004+ for process loopback.
+- Windows 10 1809 or newer. What differs by version is answered at runtime and
+  reported in About:
+
+  | | Windows 10 | Windows 11 22H2+ |
+  |---|---|---|
+  | Acrylic | legacy `SetWindowCompositionAttribute` | DWM `DWMSBT_TRANSIENTWINDOW` |
+  | Mica | not available, falls back to Acrylic | yes |
+  | Rounded corners | drawn by Lumen (`appearance.radius`) | DWM rounds the window |
+  | Volume boost | 2004 (19041) and newer | yes |
 - WebView2 runtime — preinstalled on Windows 11.
 - To build: Rust 1.85+, Node 20+, MSVC toolchain.
 

@@ -9,7 +9,7 @@
 <p>
   <a href="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/flexeykinDev/lumen/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/flexeykinDev/lumen/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/flexeykinDev/lumen?color=7a8cff&label=release" /></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-161%20passing-5ad19b" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-197%20passing-5ad19b" />
   <img alt="Clippy" src="https://img.shields.io/badge/clippy-clean-5ad19b" />
   <img alt="Size" src="https://img.shields.io/badge/exe-4.3%20MB-c8cee0" />
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%201809%2B-0078d4" />
@@ -51,6 +51,11 @@
   топ исполнителей и итоги в окне настроек. Трек засчитывается после тридцати
   секунд (или половины длительности, если он короче), поэтому перелистывание
   плейлиста не забивает чарт. Никуда ничего не отправляется.
+- **Поверх игр — или нет.** Всегда сверху, только когда игра не занимает весь
+  экран, или никогда — и в любом случае с горячей клавишей «скрыть/показать».
+- **Вывод для OBS.** Текущий трек в текстовых файлах, обложка и готовый
+  HTML-оверлей: захват слоёного окна поверх всех окон по своей природе
+  ненадёжен.
 - **Проверка обновлений.** Один запрос за запуск к текстовому файлу в этом
   репозитории. Только сообщает — ничего не скачивает и не подменяет.
 - **Портативность.** Один exe на 4,3 МБ и один JSON рядом с ним. Без
@@ -169,6 +174,12 @@ Alt + средний клик.
 | `spectrum.enabled` | bool | |
 | `pet.*` | — | Пишется пасхалкой. Руками задавать нечего |
 | `updates.check` | bool | Раз за запуск спрашивает GitHub, есть ли новая версия |
+| `onTop` | `always` \| `games` \| `never` | `games` убирает капсулу, пока полноэкранная игра занимает экран |
+| `appearance.surface` | `system` \| `solid` \| `clear` | `clear` убирает панель целиком |
+| `appearance.opacity` | `0`–`1` | Только панель; содержимое остаётся читаемым |
+| `appearance.tint`, `appearance.ink` | `#rrggbb` \| `auto` | `auto` следует за обложкой |
+| `appearance.radius` | px | Радиус углов. На Windows 10 именно он задаёт форму капсулы |
+| `obs.enabled`, `obs.folder`, `obs.writeCover` | bool, путь, bool | Файлы с текущим треком для OBS |
 | `startWithWindows` | bool | Дублируется в `HKCU\…\Run` и сверяется при каждом запуске |
 
 ### Горячие клавиши
