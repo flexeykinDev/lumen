@@ -56,7 +56,7 @@ do with it.
   is unreliable by nature.
 - **Update check.** One request per launch to a text file in this repository.
   It reports; it never downloads or replaces anything.
-- **Portable.** One 4.3 MB exe, one JSON file beside it. No installer, no
+- **Portable.** One 4.4 MB exe, one JSON file beside it. No installer, no
   registry beyond an optional autostart entry.
 
 ## Tech stack
